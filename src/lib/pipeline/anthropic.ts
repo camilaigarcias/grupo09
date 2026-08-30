@@ -5,10 +5,11 @@ import Anthropic from '@anthropic-ai/sdk';
 
 let cliente: Anthropic | null = null;
 
-// Chave "identity-linked" (a que vem de conta com workspaces) exige o header
-// anthropic-workspace-id em TODA requisicao, senao a API devolve 400. Chave de
-// organizacao comum nao precisa: com ANTHROPIC_WORKSPACE_ID vazio o header nao
-// e enviado e o comportamento fica identico ao de antes.
+// ANTHROPIC_WORKSPACE_ID deve ficar VAZIO no uso normal: chave de API
+// (sk-ant-...) ja e vinculada ao workspace na criacao e a API nao define um
+// header anthropic-workspace-id. O passthrough abaixo existe so por
+// compatibilidade com a config do time; preenchido, envia um header nao
+// reconhecido — ver docs/conectar-api.md ("E workspace?").
 export function getAnthropic(): Anthropic {
   if (!cliente) {
     const workspace = process.env.ANTHROPIC_WORKSPACE_ID?.trim();

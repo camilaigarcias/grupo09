@@ -33,7 +33,7 @@ Custo estimado por ranking real (10 fornecedores): ~US$ 1,50–2,50.
 Para ensaiar o pitch sem gastar, force `MOCK_MODE=true` no `.env`.
 
 4. Confira se a chave chegou: `curl -s localhost:3000/api/status` mostra o modo
-   e a chave mascarada; `…/api/status?ping=1` faz uma chamada minuscula e prova
+   e se a chave esta presente; `…/api/status?ping=1` faz uma chamada minuscula e prova
    que ela funciona. A queda para o modo demonstracao e silenciosa, entao esse
    passo evita descobrir no palco. Passo a passo (local e Vercel), custo e o que
    fazer se a chave vazar: `docs/conectar-api.md`.
