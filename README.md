@@ -59,6 +59,9 @@ recomendada") e a regra de justiça — pouca pegada digital nunca vira "Evitar"
 
 ## Deploy demo (Vercel)
 
+**Demo pública no ar: https://autopilot-eventos-demo.vercel.app** (projeto
+`autopilot-eventos-demo`, publicado via Vercel CLI da máquina).
+
 O deploy roda em modo demonstração com `DATA_STORE=memory`; no modo mock o
 estado da pesquisa é derivado deterministicamente do próprio id (funciona em
 serverless sem banco). O modo real com SQLite é local por enquanto — em
