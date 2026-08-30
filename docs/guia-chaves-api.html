@@ -282,6 +282,13 @@
     box-shadow: var(--shadow);
   }
   .callout-seguranca h2 { color: var(--accent); }
+  .callout-receita {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--ok);
+    box-shadow: var(--shadow);
+  }
+  .callout-receita h2 { color: var(--ok); }
   .callout ul { margin: 0; padding-left: 1.15rem; }
   .callout li { margin-bottom: 0.4rem; max-width: 62ch; }
   .callout li:last-child { margin-bottom: 0; }
@@ -407,6 +414,12 @@
     <li class="callout callout-custo" aria-label="Aviso de custo">
       <h2>Atenção ao custo</h2>
       <p>Cada ranking real de 10 fornecedores custa <strong>cerca de US$&nbsp;1,50 a US$&nbsp;2,50</strong> — são ~70 a 90 buscas na web por rodada. O app já limita as buscas por agente (8 no Descobridor, 6 no Verificador, 4 no Refinador), mas rode o modo real com intenção: para treinar apresentação, use o passo 4 e não gaste nada.</p>
+    </li>
+
+    <!-- CALLOUT RECEITA/CNPJ -->
+    <li class="callout callout-receita" aria-label="Consulta à Receita Federal">
+      <h2>E a chave da Receita Federal?</h2>
+      <p><strong>Não existe — e isso é de propósito.</strong> A consulta de CNPJ (situação cadastral, data de abertura, CNAE, porte) sai da <strong>BrasilAPI</strong>, um serviço público e gratuito que <strong>não pede chave, cadastro nem configuração</strong>. O app já chama <code>brasilapi.com.br/api/cnpj/v1/…</code> sozinho, com espera e retentativa automáticas. Ou seja: com a chave da Anthropic do passo 1 no lugar, <strong>o sistema inteiro está completo</strong> — não procure uma segunda chave, ela não existe.</p>
     </li>
 
     <!-- PASSO 4 -->
