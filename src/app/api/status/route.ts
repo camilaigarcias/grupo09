@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { MODELS, isMockMode } from '@/lib/config';
+import { getAnthropic } from '@/lib/pipeline/anthropic';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,8 +30,8 @@ interface Ping {
 // Uma chamada real minuscula (poucos tokens) so para provar a credencial.
 async function pingar(): Promise<Ping> {
   try {
-    const client = new Anthropic({ timeout: 20_000, maxRetries: 0 });
-    const r = await client.messages.create({
+    // O mesmo cliente da pipeline: o ping so vale se provar a configuracao real.
+    const r = await getAnthropic().messages.create({
       model: MODELS.descobridor,
       max_tokens: 8,
       messages: [{ role: 'user', content: 'responda apenas: ok' }],
@@ -45,6 +46,9 @@ async function pingar(): Promise<Ping> {
     }
     if (e instanceof Anthropic.NotFoundError) {
       return { ok: false, status: 404, tipo: 'not_found_error', detalhe: `modelo "${MODELS.descobridor}" nao encontrado para esta conta` };
+    }
+    if (e instanceof Anthropic.BadRequestError && /anthropic-workspace-id/.test(String(e.message))) {
+      return { ok: false, status: 400, tipo: 'workspace_id_required', detalhe: 'chave identity-linked: falta ANTHROPIC_WORKSPACE_ID no ambiente (id do workspace, comeca com wrkspc_)' };
     }
     if (e instanceof Anthropic.RateLimitError) {
       return { ok: false, status: 429, tipo: 'rate_limit_error', detalhe: 'chave valida, mas sem cota agora (rate limit ou credito zerado)' };
@@ -69,6 +73,7 @@ export async function GET(req: Request) {
     chaveMascarada: mascarar(chave),
     mockForcado: process.env.MOCK_MODE === 'true',
     dataStore: process.env.DATA_STORE ?? 'sqlite',
+    workspaceId: process.env.ANTHROPIC_WORKSPACE_ID?.trim() || null,
     modelos: MODELS,
     // Ping so sob demanda: gasta (pouquissimo) credito de verdade.
     dica: querPing ? undefined : 'para testar a chave de verdade, chame /api/status?ping=1',

@@ -65,6 +65,21 @@ O que cada resposta significa:
 | `403 permission_error` | chave existe, sem permissao no workspace | liberar o workspace no console |
 | `404 not_found_error` | a conta nao enxerga o modelo configurado | trocar o modelo no `.env` (`MODEL_*`) |
 | `429 rate_limit_error` | chave valida, sem cota ou sem credito | conferir credito no console |
+| `400 workspace_id_required` | chave identity-linked sem o workspace | preencher `ANTHROPIC_WORKSPACE_ID` |
+
+### Chave identity-linked
+
+Conta com workspaces gera chave "identity-linked": ela **so funciona com o
+header `anthropic-workspace-id`** em toda requisicao, senao a API devolve 400
+antes de gerar um unico token. O app manda o header sozinho quando
+`ANTHROPIC_WORKSPACE_ID` esta preenchido (`src/lib/pipeline/anthropic.ts`);
+vazio, nao manda nada e o comportamento fica identico ao da chave de
+organizacao comum.
+
+O id comeca com `wrkspc_` e fica no console da Anthropic, em
+`Settings` > `Workspaces`, dentro da URL do workspace. Ele identifica o
+workspace, nao autoriza nada sozinho, mas mora no `.env` junto com a chave.
+Na Vercel, e uma segunda variavel de ambiente com o mesmo nome.
 
 Na Vercel, a mesma URL: `https://<dominio-do-deploy>/api/status?ping=1`.
 
