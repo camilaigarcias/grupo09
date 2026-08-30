@@ -1,26 +1,27 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CATEGORIAS,
   FAMILIAS,
+  MAX_CATEGORIAS_POR_PESQUISA,
   TIPOS_EVENTO,
   categoriaLabel,
   mapearCategorias,
-  MAX_CATEGORIAS_POR_PESQUISA,
   type ChecklistRespostas,
   type TipoEvento,
 } from '@/lib/categorias';
-import { DEFAULT_CITY } from '@/lib/config';
+import { DEFAULT_CITY, PRECO_BUSCA } from '@/lib/config';
 import type { CriarRankingBody, CriarRankingResponse } from '@/lib/types';
+import { Disclose } from '@/components/ui';
 import Paywall from './Paywall';
+import BuscaCategoria from './BuscaCategoria';
 
-const FALHA_GENERICA =
-  'Não conseguimos iniciar a pesquisa. Verifique a conexão e tente de novo.';
+const FALHA_GENERICA = 'Sem resposta do servidor. Tente de novo.';
 
-// A rota devolve o motivo em `erro` (ex.: teto de categorias). Sem ler isso,
-// toda falha de regra virava "erro de conexão" e o usuário não sabia o que fazer.
+// A rota devolve o motivo em `erro`. Sem ler isso, toda falha de regra virava
+// "erro de conexão" e a Ana não sabia o que fazer.
 async function lerErroDaApi(res: Response): Promise<string | null> {
   try {
     const j = (await res.json()) as { erro?: unknown };
@@ -30,134 +31,198 @@ async function lerErroDaApi(res: Response): Promise<string | null> {
   }
 }
 
-type Modo = 'intro' | 'checklist' | 'atalho' | 'revisao';
+const TOTAL_PASSOS = 5;
+
+const PESSOAS_LABEL: Record<NonNullable<Estado['pessoas']>, string> = {
+  ate50: 'até 50 pessoas',
+  '50a200': '50 a 200 pessoas',
+  '200mais': 'mais de 200 pessoas',
+};
+
+// Os 12 chips do passo 5. Cada um carrega para onde vai no modelo de respostas,
+// para o mapeamento determinístico continuar recebendo as 10 respostas inteiras.
+type ChipExtra =
+  | 'musica'
+  | 'palco'
+  | 'decoracao'
+  | 'foto'
+  | 'brindes'
+  | 'recepcao'
+  | 'transporte'
+  | 'maisDeUmDia'
+  | 'estacionamento'
+  | 'transmissao'
+  | 'estrangeiro'
+  | 'pcd';
+
+const EXTRAS: Array<{ id: ChipExtra; label: string }> = [
+  { id: 'musica', label: 'DJ, banda ou atração' },
+  { id: 'palco', label: 'Palestras ou palco' },
+  { id: 'decoracao', label: 'Decoração' },
+  { id: 'foto', label: 'Fotografia e vídeo' },
+  { id: 'brindes', label: 'Brindes' },
+  { id: 'recepcao', label: 'Recepção e check-in' },
+  { id: 'transporte', label: 'Transporte dos convidados' },
+  { id: 'maisDeUmDia', label: 'Mais de um dia' },
+  { id: 'estacionamento', label: 'Estacionamento' },
+  { id: 'transmissao', label: 'Transmissão online' },
+  { id: 'estrangeiro', label: 'Público estrangeiro' },
+  { id: 'pcd', label: 'Participantes PCD' },
+];
+
+type Comida = 'coffee' | 'almoco_jantar' | 'coquetel' | 'churrasco';
+
+const COMIDAS: Array<{ id: Comida; label: string }> = [
+  { id: 'coffee', label: 'Coffee break' },
+  { id: 'almoco_jantar', label: 'Almoço ou jantar' },
+  { id: 'coquetel', label: 'Coquetel' },
+  { id: 'churrasco', label: 'Churrasco ou food truck' },
+];
 
 interface Estado {
   tipo: TipoEvento | null;
-  pessoas: ChecklistRespostas['pessoas'] | null;
-  local: ChecklistRespostas['local'] | null;
-  formato: ChecklistRespostas['formato'] | null;
-  comida: ChecklistRespostas['comida'];
+  pessoas: 'ate50' | '50a200' | '200mais' | null;
+  local: 'proprio' | 'alugado_licenciado' | 'externo_nao_licenciado' | null;
+  comida: Comida[];
+  openBar: boolean;
   semComida: boolean;
-  veg: boolean;
-  bebidaMusica: ChecklistRespostas['bebidaMusica'];
-  palco: boolean;
-  estrangeiro: boolean;
-  pcd: boolean;
-  marcaRegistro: ChecklistRespostas['marcaRegistro'];
-  logistica: ChecklistRespostas['logistica'];
-  inclusos: string[];
+  extras: ChipExtra[];
 }
 
 const ESTADO_INICIAL: Estado = {
   tipo: null,
   pessoas: null,
   local: null,
-  formato: null,
   comida: [],
+  openBar: false,
   semComida: false,
-  veg: true,
-  bebidaMusica: [],
-  palco: false,
-  estrangeiro: false,
-  pcd: false,
-  marcaRegistro: [],
-  logistica: [],
-  inclusos: [],
+  extras: [],
 };
 
-const TOTAL_PASSOS = 10;
-
-// Pergunta 10: o que o espaço costuma incluir (desliga categorias — não cotar em dobro).
-const OPCOES_INCLUSOS: Array<{ id: string; label: string }> = [
-  { id: 'limpeza', label: 'Limpeza' },
-  { id: 'seguranca', label: 'Segurança' },
-  { id: 'audio_video', label: 'Som e projetor' },
-  { id: 'mobiliario', label: 'Mobiliário' },
-  { id: 'buffet', label: 'O espaço exige o buffet da casa' },
-];
+function alterna<T extends string>(lista: T[], item: T): T[] {
+  return lista.includes(item) ? lista.filter((x) => x !== item) : [...lista, item];
+}
 
 export default function Briefing() {
   const router = useRouter();
-  const [modo, setModo] = useState<Modo>('intro');
+  // A abertura é uma escolha de caminho, não a primeira pergunta: quem já sabe
+  // a categoria não deve ter que atravessar o briefing para chegar nela.
+  const [naAbertura, setNaAbertura] = useState(true);
   const [passo, setPasso] = useState(1);
   const [e, setE] = useState<Estado>(ESTADO_INICIAL);
   const [cidade, setCidade] = useState(DEFAULT_CITY);
-  const [desligadas, setDesligadas] = useState<Set<string>>(new Set());
-  const [catDireta, setCatDireta] = useState('buffet');
+  const [naLista, setNaLista] = useState(false);
+  // A lista chega para CONFIRMAR. Só quem pede é que volta a mexer nela.
+  const [modoLista, setModoLista] = useState<'confirmar' | 'editar'>('confirmar');
+  const [antesDeEditar, setAntesDeEditar] = useState<string[] | null>(null);
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [atalho, setAtalho] = useState<string[] | null>(null);
+  const [ligadas, setLigadas] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  // Etapa paywall: pesquisa "travada" aguardando o desbloqueio (pagamento
-  // simulado). O POST /api/rankings só acontece depois do onPagar.
-  const [paywallPendente, setPaywallPendente] = useState<{
-    categorias: string[];
-    avisos: string[];
-  } | null>(null);
+  const [pagando, setPagando] = useState(false);
+
+  // Auto-avanço só vale para toque/clique. No teclado, as setas trocam o rádio
+  // sem sair da pergunta — quem navega por teclado avança no Enter.
+  const entrada = useRef<'ponteiro' | 'teclado'>('ponteiro');
+  useEffect(() => {
+    const porPonteiro = () => (entrada.current = 'ponteiro');
+    const porTeclado = () => (entrada.current = 'teclado');
+    window.addEventListener('pointerdown', porPonteiro, true);
+    window.addEventListener('keydown', porTeclado, true);
+    return () => {
+      window.removeEventListener('pointerdown', porPonteiro, true);
+      window.removeEventListener('keydown', porTeclado, true);
+    };
+  }, []);
+
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  function avancar(de: number) {
+    if (de >= TOTAL_PASSOS) setNaLista(true);
+    else setPasso(de + 1);
+  }
+
+  // 250ms para a seleção ser vista antes da tela trocar (DS §4.6).
+  function autoAvancar(de: number) {
+    if (entrada.current !== 'ponteiro') return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => avancar(de), 250);
+  }
 
   const respostas: ChecklistRespostas | null = useMemo(() => {
-    if (!e.tipo || !e.pessoas || !e.local || !e.formato) return null;
+    if (!e.tipo || !e.pessoas || !e.local) return null;
+    const bebidaMusica: ChecklistRespostas['bebidaMusica'] = [];
+    if (e.openBar) bebidaMusica.push('open_bar');
+    if (e.extras.includes('musica')) bebidaMusica.push('musica');
+    const marcaRegistro: ChecklistRespostas['marcaRegistro'] = [];
+    if (e.extras.includes('decoracao')) marcaRegistro.push('cenografia');
+    if (e.extras.includes('brindes')) marcaRegistro.push('brindes');
+    if (e.extras.includes('foto')) marcaRegistro.push('foto_video');
+    const logistica: ChecklistRespostas['logistica'] = [];
+    if (e.extras.includes('recepcao')) logistica.push('recepcao');
+    if (e.extras.includes('transporte')) logistica.push('transporte');
+    if (e.extras.includes('maisDeUmDia')) logistica.push('mais_de_um_dia');
+    if (e.extras.includes('estacionamento')) logistica.push('estacionamento');
     return {
       tipo: e.tipo,
       pessoas: e.pessoas,
       local: e.local,
-      formato: e.formato,
+      // A pergunta "presencial, online ou os dois?" saiu da tela: o tipo de
+      // evento e o chip de transmissão já respondem por ela.
+      formato: e.tipo === 'hibrido' || e.extras.includes('transmissao') ? 'hibrido' : 'presencial',
       comida: e.semComida ? [] : e.comida,
-      bebidaMusica: e.bebidaMusica,
-      palco: e.palco,
-      publicoEstrangeiro: e.estrangeiro,
-      acessibilidade: e.pcd,
-      marcaRegistro: e.marcaRegistro,
-      logistica: e.logistica,
-      inclusosNoEspaco: e.inclusos,
+      bebidaMusica,
+      palco: e.extras.includes('palco'),
+      publicoEstrangeiro: e.extras.includes('estrangeiro'),
+      acessibilidade: e.extras.includes('pcd'),
+      marcaRegistro,
+      logistica,
+      // Quem tira categoria da pesquisa é o chip da lista, não uma pergunta.
+      inclusosNoEspaco: [],
     };
   }, [e]);
 
-  const mapeamento = useMemo(
-    () => (respostas ? mapearCategorias(respostas) : null),
-    [respostas],
-  );
-  // Categorias que ENTRARIAM mas foram desligadas pela P10 (aparecem riscadas).
-  const riscadasPelaP10 = useMemo(() => {
-    if (!respostas) return [];
-    const cheio = mapearCategorias({ ...respostas, inclusosNoEspaco: [] });
-    return cheio.categorias.filter((c) => !mapeamento!.categorias.includes(c));
-  }, [respostas, mapeamento]);
+  const mapeamento = useMemo(() => (respostas ? mapearCategorias(respostas) : null), [respostas]);
+  const base = useMemo(() => atalho ?? mapeamento?.categorias ?? [], [atalho, mapeamento]);
+  const avisos = atalho ? [] : (mapeamento?.avisos ?? []);
+  const excedentes = base.filter((c) => !ligadas.includes(c));
+  const chave = base.join(',');
 
-  const selecionadas = useMemo(
-    () => (mapeamento ? mapeamento.categorias.filter((c) => !desligadas.has(c)) : []),
-    [mapeamento, desligadas],
-  );
+  // A ordem de mapearCategorias já é determinística (começa pelo template do
+  // tipo de evento), então as primeiras são as mais previsíveis para a Ana.
+  useEffect(() => {
+    setLigadas(base.slice(0, MAX_CATEGORIAS_POR_PESQUISA));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chave]);
 
-  // Quantas categorias passam do teto aceito pela rota (0 = pode pesquisar).
-  const excedente = selecionadas.length - MAX_CATEGORIAS_POR_PESQUISA;
-
-  function toggle<T extends string>(lista: T[], item: T): T[] {
-    return lista.includes(item) ? lista.filter((x) => x !== item) : [...lista, item];
+  function alternarCategoria(id: string) {
+    setErro(null);
+    setLigadas((atual) => {
+      if (atual.includes(id)) return atual.filter((x) => x !== id);
+      if (atual.length >= MAX_CATEGORIAS_POR_PESQUISA) {
+        setErro('Tire uma para colocar esta.');
+        return atual;
+      }
+      return [...atual, id];
+    });
   }
 
-  function podeAvancar(): boolean {
-    switch (passo) {
-      case 1: return e.tipo != null;
-      case 2: return e.pessoas != null;
-      case 3: return e.local != null;
-      case 4: return e.formato != null;
-      case 5: return e.semComida || e.comida.length > 0;
-      default: return true; // 6–10 são opcionais
-    }
-  }
-
-  async function pesquisar(categorias: string[], avisos: string[]) {
-    if (categorias.length === 0 || !cidade.trim()) {
-      // Nunca deve acontecer (CTAs validam antes do paywall) — mas se um
-      // refactor quebrar isso, sinaliza em vez de travar o paywall em silêncio.
-      setErro('Escolha ao menos uma categoria e informe a cidade antes de pesquisar.');
-      setPaywallPendente(null);
-      return;
-    }
+  async function pesquisar() {
     setEnviando(true);
     setErro(null);
     try {
-      const body: CriarRankingBody = { cidade: cidade.trim(), categorias, avisos };
+      const body: CriarRankingBody = {
+        cidade: cidade.trim(),
+        categorias: ligadas,
+        avisos,
+      };
       const res = await fetch('/api/rankings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -166,7 +231,7 @@ export default function Briefing() {
       if (!res.ok) {
         setErro((await lerErroDaApi(res)) ?? FALHA_GENERICA);
         setEnviando(false);
-        setPaywallPendente(null);
+        setPagando(false);
         return;
       }
       const json = (await res.json()) as CriarRankingResponse;
@@ -174,400 +239,441 @@ export default function Briefing() {
     } catch {
       setErro(FALHA_GENERICA);
       setEnviando(false);
-      // Falhou depois do "pagamento": volta para a tela anterior com o aviso.
-      setPaywallPendente(null);
+      setPagando(false);
     }
   }
 
-  function abrirPaywallDoChecklist() {
-    if (!mapeamento) return;
-    if (excedente > 0) {
-      setErro(
-        `Tire ${excedente} categoria${excedente === 1 ? '' : 's'} para seguir — cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA}.`,
-      );
-      return;
+  /* ---------------- tela: sua lista ---------------- */
+
+  if (naLista) {
+    const podeIr = ligadas.length > 0 && cidade.trim().length > 1 && !enviando;
+    const editando = modoLista === 'editar';
+
+    function sair() {
+      setErro(null);
+      setModoLista('confirmar');
+      setNaLista(false);
+      setAtalho(null);
+      setLigadas([]);
+      setE(ESTADO_INICIAL);
+      setPasso(1);
+      setNaAbertura(true);
     }
-    const avisos = [...mapeamento.avisos];
-    if (e.veg && !e.semComida && e.comida.length > 0) {
-      avisos.push(
-        'Briefing alimentar: incluir opção vegetariana/vegana ao cotar — praticamente obrigatório em evento corporativo.',
-      );
-    }
-    setErro(null);
-    setPaywallPendente({ categorias: selecionadas, avisos });
-  }
 
-  /* ---------- telas ---------- */
-
-  if (paywallPendente) {
-    const pendente = paywallPendente;
     return (
-      <div className="container">
-        <Paywall
-          cidade={cidade.trim()}
-          categoriasLabels={pendente.categorias.map((c) => categoriaLabel(c))}
-          onPagar={() => void pesquisar(pendente.categorias, pendente.avisos)}
-          onVoltar={() => setPaywallPendente(null)}
-        />
-      </div>
-    );
-  }
+      <>
+        <div className="wrap">
+          <h1 className="h1">
+            {editando
+              ? 'O que tirar da busca?'
+              : `Seu evento precisa ${ligadas.length === 1 ? 'deste fornecedor' : `destes ${ligadas.length} fornecedores`}`}
+          </h1>
+          <MetaLinha
+            tipo={atalho ? null : e.tipo}
+            pessoas={atalho ? null : e.pessoas}
+            cidade={cidade}
+            setCidade={setCidade}
+            categorias={atalho ? ligadas.length : null}
+          />
 
-  if (modo === 'intro') {
-    return (
-      <div className="container">
-        <h1>Monte a lista certa de fornecedores para seu evento</h1>
-        <p className="lede">
-          Responda 10 perguntas rápidas. Nós pesquisamos, verificamos a reputação de cada
-          fornecedor em fontes públicas e entregamos um ranking com evidências — pronto
-          para anexar à sua política de compras.
-        </p>
-        <button
-          className="btn btn-gradient btn-block"
-          onClick={() => {
-            setModo('checklist');
-            setPasso(1);
-          }}
-        >
-          Começar pelo meu evento
-        </button>
-        <button className="btn-link" onClick={() => setModo('atalho')}>
-          Já sei a categoria que preciso →
-        </button>
-      </div>
-    );
-  }
-
-  if (modo === 'atalho') {
-    return (
-      <div className="container">
-        <h1>Pesquisa rápida por categoria</h1>
-        <p className="lede">
-          Escolha uma categoria e a cidade — nós descobrimos e verificamos os
-          fornecedores.
-        </p>
-        <label htmlFor="cat-direta" style={{ fontWeight: 600 }}>
-          Categoria
-        </label>
-        <select
-          id="cat-direta"
-          className="card"
-          style={{ width: '100%', minHeight: 44, margin: '8px 0 16px', font: 'inherit' }}
-          value={catDireta}
-          onChange={(ev) => setCatDireta(ev.target.value)}
-        >
-          {Object.entries(FAMILIAS).map(([fam, famLabel]) => (
-            <optgroup key={fam} label={famLabel}>
-              {CATEGORIAS.filter((c) => c.familia === fam).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </optgroup>
+          {avisos.map((a) => (
+            <AvisoCurto key={a} texto={a} />
           ))}
-        </select>
-        <CampoCidade cidade={cidade} setCidade={setCidade} />
-        {erro && <p className="note note-warn" role="alert">{erro}</p>}
-        <div className="step-footer">
-          <button className="btn" onClick={() => setModo('intro')}>
+
+          {/* Confirmar é leitura: as categorias viram etiquetas, não controles.
+              Só no modo de edição elas voltam a ser tocáveis. */}
+          <ListaDeCategorias
+            ligadas={ligadas}
+            excedentes={excedentes}
+            editando={editando}
+            onAlternar={alternarCategoria}
+          />
+
+          {erro && (
+            <p className="note note-warn" role="alert">
+              {erro}
+            </p>
+          )}
+
+          <div className="dock">
+            <div className="dock-inner">
+              {!editando && <p className="caption">Prosseguir com a busca?</p>}
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setErro(null);
+                    if (editando) {
+                      // Cancelar devolve a lista como estava ao entrar na edição.
+                      if (antesDeEditar) setLigadas(antesDeEditar);
+                      setAntesDeEditar(null);
+                      setModoLista('confirmar');
+                    } else {
+                      setAntesDeEditar(ligadas);
+                      setModoLista('editar');
+                    }
+                  }}
+                >
+                  {editando ? 'Cancelar' : 'Remover algum'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg"
+                  disabled={!podeIr}
+                  onClick={() => {
+                    setAntesDeEditar(null);
+                    setModoLista('confirmar');
+                    setPagando(true);
+                  }}
+                >
+                  {editando ? 'Prosseguir' : 'Prosseguir com a busca'} · {PRECO_BUSCA}
+                </button>
+              </div>
+              <div className="dock-saida">
+                <button type="button" className="btn btn-ghost btn-sm" onClick={sair}>
+                  Sair
+                </button>
+                <span className="caption subtle">🔒 Relatório privado. Só você vê.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {pagando && (
+          <Paywall
+            enviando={enviando}
+            onPagar={() => void pesquisar()}
+            onFechar={() => setPagando(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  /* ---------------- abertura ---------------- */
+
+  if (naAbertura) {
+    return (
+      <>
+        <div className="wrap hero">
+          <h1 className="h1">Confira o fornecedor antes de pagar o sinal.</h1>
+          <p className="lede">13 checagens em fontes públicas. Fonte clicável em cada uma.</p>
+
+          <div className="hero-acoes">
+            <button
+              type="button"
+              className="btn btn-gradient btn-lg btn-block"
+              onClick={() => {
+                setNaAbertura(false);
+                setPasso(1);
+              }}
+            >
+              Começar pelo meu evento
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-lg btn-block"
+              onClick={() => setBuscaAberta(true)}
+            >
+              <IconeBusca /> Já sei a categoria
+            </button>
+          </div>
+
+          <p className="caption subtle">Cinco perguntas. Menos de dois minutos.</p>
+        </div>
+
+        {buscaAberta && (
+          <BuscaCategoria
+            onFechar={() => setBuscaAberta(false)}
+            onUsar={(ids) => {
+              setBuscaAberta(false);
+              setAtalho(ids);
+              setLigadas(ids);
+              setNaAbertura(false);
+              setNaLista(true);
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
+  /* ---------------- wizard ---------------- */
+
+  const feira = e.tipo === 'feira_expositor';
+  const comDock = passo >= 4;
+
+  return (
+    <>
+      <div className="wrap">
+        {/* nos passos com dock, o Voltar já está no rodapé fixo */}
+        {passo < 4 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => (passo === 1 ? setNaAbertura(true) : setPasso(passo - 1))}
+          >
             ← Voltar
           </button>
-          <button
-            className="btn btn-primary"
-            disabled={enviando || !cidade.trim()}
-            onClick={() => {
-              setErro(null);
-              setPaywallPendente({ categorias: [catDireta], avisos: [] });
-            }}
-          >
-            🔎 Pesquisar fornecedores
-          </button>
-        </div>
-      </div>
-    );
-  }
+        )}
 
-  if (modo === 'revisao' && mapeamento) {
-    const resumo = [
-      TIPOS_EVENTO.find((t) => t.id === e.tipo)?.label,
-      e.pessoas === 'ate50' ? 'até 50 pessoas' : e.pessoas === '50a200' ? '50–200 pessoas' : 'mais de 200 pessoas',
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    const familiasComCategoria = Object.entries(FAMILIAS).filter(([fam]) =>
-      mapeamento.categorias.some((c) => CATEGORIAS.find((x) => x.id === c)?.familia === fam),
-    );
-    return (
-      <div className="container">
-        <h1>
-          Seu evento aciona {mapeamento.categorias.length}{' '}
-          {mapeamento.categorias.length === 1 ? 'categoria' : 'categorias'}
-        </h1>
-        <p className="lede">{resumo}</p>
-        {mapeamento.avisos.map((a) => (
-          <p key={a} className="note note-warn">
-            ⚠ {a}
-          </p>
-        ))}
-        {familiasComCategoria.map(([fam, famLabel]) => (
-          <section key={fam}>
-            <h2 className="familia-heading">{famLabel}</h2>
-            <div>
-              {mapeamento.categorias
-                .filter((c) => CATEGORIAS.find((x) => x.id === c)?.familia === fam)
-                .map((c) => {
-                  const ligada = !desligadas.has(c);
+        <Passos atual={passo} />
+
+        <form
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            if (podeAvancar(passo, e)) avancar(passo);
+          }}
+        >
+          {passo === 1 && (
+            <fieldset className="opt-grid">
+              <legend className="h1">Que tipo de evento é?</legend>
+              {TIPOS_EVENTO.map((t) => (
+                <Radio
+                  key={t.id}
+                  name="tipo"
+                  checked={e.tipo === t.id}
+                  label={t.label}
+                  onChange={() => {
+                    setE({ ...e, tipo: t.id });
+                    // Feira inverte o fluxo inteiro: a Ana precisa ler o aviso
+                    // antes de seguir, então aqui o avanço nunca é automático.
+                    if (t.id !== 'feira_expositor') autoAvancar(1);
+                  }}
+                />
+              ))}
+            </fieldset>
+          )}
+
+          {passo === 2 && (
+            <fieldset className="opt-grid">
+              <legend className="h1">Quantas pessoas?</legend>
+              {(['ate50', '50a200', '200mais'] as const).map((id) => (
+                <Radio
+                  key={id}
+                  name="pessoas"
+                  checked={e.pessoas === id}
+                  label={
+                    id === 'ate50' ? 'Até 50' : id === '50a200' ? 'De 50 a 200' : 'Mais de 200'
+                  }
+                  onChange={() => {
+                    setE({ ...e, pessoas: id });
+                    autoAvancar(2);
+                  }}
+                />
+              ))}
+            </fieldset>
+          )}
+
+          {passo === 3 && (
+            <fieldset className="opt-grid">
+              <legend className="h1">Onde vai ser?</legend>
+              <Radio
+                name="local"
+                checked={e.local === 'proprio'}
+                label="No escritório"
+                hint="espaço da empresa"
+                onChange={() => {
+                  setE({ ...e, local: 'proprio' });
+                  autoAvancar(3);
+                }}
+              />
+              <Radio
+                name="local"
+                checked={e.local === 'alugado_licenciado'}
+                label="Espaço de eventos"
+                hint="hotel, casa de eventos, auditório"
+                onChange={() => {
+                  setE({ ...e, local: 'alugado_licenciado' });
+                  autoAvancar(3);
+                }}
+              />
+              <Radio
+                name="local"
+                checked={e.local === 'externo_nao_licenciado'}
+                label="Ao ar livre ou espaço improvisado"
+                hint="galpão, sítio, praça"
+                onChange={() => {
+                  setE({ ...e, local: 'externo_nao_licenciado' });
+                  autoAvancar(3);
+                }}
+              />
+            </fieldset>
+          )}
+
+          {passo === 4 && (
+            <fieldset className="opt-grid">
+              <legend className="h1">Comida e bebida?</legend>
+              <p className="caption subtle">Pode marcar mais de um.</p>
+              {COMIDAS.map((c) => (
+                <Check
+                  key={c.id}
+                  checked={e.comida.includes(c.id)}
+                  disabled={e.semComida}
+                  label={c.label}
+                  onChange={() =>
+                    setE({
+                      ...e,
+                      comida: alterna(e.comida, c.id),
+                      semComida: false,
+                    })
+                  }
+                />
+              ))}
+              <Check
+                checked={e.openBar}
+                disabled={e.semComida}
+                label="Open bar"
+                onChange={() => setE({ ...e, openBar: !e.openBar, semComida: false })}
+              />
+              <span className="divider" />
+              <Check
+                checked={e.semComida}
+                label="Nada disso"
+                onChange={() =>
+                  setE({
+                    ...e,
+                    semComida: !e.semComida,
+                    comida: [],
+                    openBar: false,
+                  })
+                }
+              />
+            </fieldset>
+          )}
+
+          {passo === 5 && (
+            <fieldset>
+              <legend className="h1">O que mais o evento tem?</legend>
+              <p className="caption subtle">Pode pular.</p>
+              <div className="chips">
+                {EXTRAS.map((x) => {
+                  const ligado = e.extras.includes(x.id);
                   return (
                     <button
-                      key={c}
-                      className="chip"
-                      aria-pressed={ligada}
-                      onClick={() =>
-                        setDesligadas((prev) => {
-                          const nova = new Set(prev);
-                          if (nova.has(c)) nova.delete(c);
-                          else nova.add(c);
-                          return nova;
-                        })
-                      }
+                      key={x.id}
+                      type="button"
+                      className="chip chip-pick"
+                      aria-pressed={ligado}
+                      aria-label={`${x.label}, ${ligado ? 'na lista' : 'fora da lista'}`}
+                      onClick={() => setE({ ...e, extras: alterna(e.extras, x.id) })}
                     >
-                      {ligada ? '✔' : '—'} {categoriaLabel(c)}
+                      {ligado && <span aria-hidden="true">✓</span>}
+                      {x.label}
                     </button>
                   );
                 })}
-              {riscadasPelaP10
-                .filter((c) => CATEGORIAS.find((x) => x.id === c)?.familia === fam)
-                .map((c) => (
-                  <span key={c} className="chip chip-struck" title="O espaço já inclui">
-                    {categoriaLabel(c)} — o espaço já inclui
-                  </span>
-                ))}
+              </div>
+              {e.extras.includes('musica') && (
+                <p className="caption subtle">
+                  Música gera taxa de ECAD (direitos autorais). Fica no relatório.
+                </p>
+              )}
+            </fieldset>
+          )}
+
+          {passo === 1 && feira && (
+            <div className="note note-warn">
+              <p>Feira muda a lista. Energia, internet e limpeza vêm do organizador.</p>
+              <Disclose rotulo="ver o que muda" rotuloAberto="ocultar">
+                <p>
+                  No estande, energia, internet, água, limpeza e mobiliário básico saem do portal do
+                  organizador da feira. Não entram como fornecedor de mercado. Montadora
+                  credenciada, cenografia do estande, ART com laudo de engenharia e seguro passam a
+                  ser obrigatórios.
+                </p>
+              </Disclose>
             </div>
-          </section>
-        ))}
-        <p className="privado" style={{ marginTop: 16 }}>
-          Toque numa categoria para tirar ou devolver à pesquisa.
-        </p>
-        <CampoCidade cidade={cidade} setCidade={setCidade} />
-        {erro && <p className="note note-warn" role="alert">{erro}</p>}
-        <div className="step-footer">
-          <button className="btn" onClick={() => setModo('checklist')}>
-            ← Voltar
-          </button>
-          {excedente > 0 && (
-            <p className="note note-warn" role="alert">
-              {`Cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA} categorias — você marcou ${selecionadas.length}. Tire ${excedente} para seguir.`}
-            </p>
           )}
-          <button
-            className="btn btn-primary"
-            disabled={enviando || selecionadas.length === 0 || excedente > 0 || !cidade.trim()}
-            onClick={abrirPaywallDoChecklist}
-          >
-            {`🔎 Pesquisar fornecedores (${selecionadas.length}/${MAX_CATEGORIAS_POR_PESQUISA} categorias · ${cidade.trim() || '—'})`}
-          </button>
-        </div>
+
+          {/* Caminho de teclado: quem navega por setas confirma no Enter. */}
+          {!comDock && (
+            <button type="submit" className="sr-only" disabled={!podeAvancar(passo, e)}>
+              Continuar
+            </button>
+          )}
+
+          {(comDock || (passo === 1 && feira)) && (
+            <div className="dock">
+              <div className="dock-inner">
+                <div className="btn-row">
+                  {passo > 1 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setPasso(passo - 1)}
+                    >
+                      ← Voltar
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-lg"
+                    disabled={!podeAvancar(passo, e)}
+                  >
+                    {passo === TOTAL_PASSOS ? 'Ver minha lista →' : 'Continuar →'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </form>
       </div>
-    );
-  }
-
-  /* ---------- checklist: 1 pergunta por vez ---------- */
-  return (
-    <div className="container">
-      <div className="stepper-top">
-        <span aria-live="polite">
-          Pergunta {passo} de {TOTAL_PASSOS}
-        </span>
-        <div
-          className="progress-track"
-          role="progressbar"
-          aria-valuemin={1}
-          aria-valuemax={TOTAL_PASSOS}
-          aria-valuenow={passo}
-          aria-label={`Pergunta ${passo} de ${TOTAL_PASSOS}`}
-        >
-          <div className="progress-fill" style={{ width: `${(passo / TOTAL_PASSOS) * 100}%` }} />
-        </div>
-      </div>
-
-      {passo === 1 && (
-        <Pergunta titulo="Que tipo de evento é?">
-          {TIPOS_EVENTO.map((t) => (
-            <Radio
-              key={t.id}
-              name="tipo"
-              checked={e.tipo === t.id}
-              onChange={() => setE({ ...e, tipo: t.id })}
-              label={t.label}
-            />
-          ))}
-          {e.tipo === 'feira_expositor' && (
-            <p className="note note-warn">
-              ⚠ <b>Feira funciona diferente.</b> Energia, internet, limpeza e mobiliário
-              você contrata do <b>próprio organizador da feira</b>, pelo portal do
-              expositor — não de fornecedor aberto. E a montadora do estande, ART/laudos
-              de engenharia e o seguro passam a ser <b>obrigatórios</b>. Ajustamos sua
-              lista por isso.
-            </p>
-          )}
-        </Pergunta>
-      )}
-
-      {passo === 2 && (
-        <Pergunta titulo="Quantas pessoas, mais ou menos?">
-          <Radio name="pessoas" checked={e.pessoas === 'ate50'} onChange={() => setE({ ...e, pessoas: 'ate50' })} label="Até 50" />
-          <Radio name="pessoas" checked={e.pessoas === '50a200'} onChange={() => setE({ ...e, pessoas: '50a200' })} label="De 50 a 200" />
-          <Radio name="pessoas" checked={e.pessoas === '200mais'} onChange={() => setE({ ...e, pessoas: '200mais' })} label="Mais de 200" />
-        </Pergunta>
-      )}
-
-      {passo === 3 && (
-        <Pergunta titulo="Onde vai ser o evento?">
-          <Radio
-            name="local"
-            checked={e.local === 'proprio'}
-            onChange={() => setE({ ...e, local: 'proprio' })}
-            label="No nosso escritório ou espaço da empresa"
-          />
-          <Radio
-            name="local"
-            checked={e.local === 'alugado_licenciado'}
-            onChange={() => setE({ ...e, local: 'alugado_licenciado' })}
-            label="Num espaço alugado que já funciona para eventos"
-            hint="hotel, casa de eventos, auditório"
-          />
-          <Radio
-            name="local"
-            checked={e.local === 'externo_nao_licenciado'}
-            onChange={() => setE({ ...e, local: 'externo_nao_licenciado' })}
-            label="Ao ar livre ou num lugar que não é de eventos"
-            hint="galpão, sítio, praça — pode exigir alvará, gerador e brigadista"
-          />
-        </Pergunta>
-      )}
-
-      {passo === 4 && (
-        <Pergunta titulo="Presencial, online ou os dois?">
-          <Radio name="formato" checked={e.formato === 'presencial'} onChange={() => setE({ ...e, formato: 'presencial' })} label="Presencial" />
-          <Radio name="formato" checked={e.formato === 'online'} onChange={() => setE({ ...e, formato: 'online' })} label="Online" />
-          <Radio
-            name="formato"
-            checked={e.formato === 'hibrido'}
-            onChange={() => setE({ ...e, formato: 'hibrido' })}
-            label="Híbrido"
-            hint="presencial + transmissão"
-          />
-        </Pergunta>
-      )}
-
-      {passo === 5 && (
-        <Pergunta titulo="Vai ter comida? De que tipo?">
-          <Check checked={e.comida.includes('coffee')} disabled={e.semComida} onChange={() => setE({ ...e, comida: toggle(e.comida, 'coffee') })} label="Coffee break" />
-          <Check checked={e.comida.includes('almoco_jantar')} disabled={e.semComida} onChange={() => setE({ ...e, comida: toggle(e.comida, 'almoco_jantar') })} label="Almoço ou jantar completo" />
-          <Check checked={e.comida.includes('coquetel')} disabled={e.semComida} onChange={() => setE({ ...e, comida: toggle(e.comida, 'coquetel') })} label="Coquetel / finger food" />
-          <Check checked={e.comida.includes('churrasco')} disabled={e.semComida} onChange={() => setE({ ...e, comida: toggle(e.comida, 'churrasco') })} label="Churrasco ou food truck" />
-          <Check checked={e.semComida} onChange={() => setE({ ...e, semComida: !e.semComida, comida: [] })} label="Sem comida" />
-          {!e.semComida && e.comida.length > 0 && (
-            <Check
-              checked={e.veg}
-              onChange={() => setE({ ...e, veg: !e.veg })}
-              label="Precisamos de opção vegetariana/vegana"
-              hint="entra no briefing da cotação"
-            />
-          )}
-        </Pergunta>
-      )}
-
-      {passo === 6 && (
-        <Pergunta titulo="Bebida alcoólica? Música?">
-          <Check checked={e.bebidaMusica.includes('open_bar')} onChange={() => setE({ ...e, bebidaMusica: toggle(e.bebidaMusica, 'open_bar') })} label="Open bar / bartender" />
-          <Check checked={e.bebidaMusica.includes('musica')} onChange={() => setE({ ...e, bebidaMusica: toggle(e.bebidaMusica, 'musica') })} label="DJ, banda ou atração" />
-          {e.bebidaMusica.includes('musica') && (
-            <p className="note">
-              💡 Música em evento corporativo gera taxa do <b>ECAD</b> (direitos
-              autorais). Não é um fornecedor — é uma guia a pagar. Vamos lembrar você no
-              relatório.
-            </p>
-          )}
-        </Pergunta>
-      )}
-
-      {passo === 7 && (
-        <Pergunta titulo="Vai ter palco ou apresentações?">
-          <Check checked={e.palco} onChange={() => setE({ ...e, palco: !e.palco })} label="Palestras / apresentações" hint="som, telão, iluminação, palestrante" />
-          <Check checked={e.estrangeiro} onChange={() => setE({ ...e, estrangeiro: !e.estrangeiro })} label="Público estrangeiro" hint="tradução simultânea" />
-          <Check checked={e.pcd} onChange={() => setE({ ...e, pcd: !e.pcd })} label="Participantes PCD" hint="intérprete de Libras / acessibilidade" />
-        </Pergunta>
-      )}
-
-      {passo === 8 && (
-        <Pergunta titulo="Marca e registro do evento?">
-          <Check checked={e.marcaRegistro.includes('cenografia')} onChange={() => setE({ ...e, marcaRegistro: toggle(e.marcaRegistro, 'cenografia') })} label="Decoração / cenografia" hint="backdrop, sinalização" />
-          <Check checked={e.marcaRegistro.includes('brindes')} onChange={() => setE({ ...e, marcaRegistro: toggle(e.marcaRegistro, 'brindes') })} label="Brindes para os participantes" />
-          <Check checked={e.marcaRegistro.includes('foto_video')} onChange={() => setE({ ...e, marcaRegistro: toggle(e.marcaRegistro, 'foto_video') })} label="Fotografia / vídeo" />
-        </Pergunta>
-      )}
-
-      {passo === 9 && (
-        <Pergunta titulo="Logística de pessoas?">
-          <Check checked={e.logistica.includes('recepcao')} onChange={() => setE({ ...e, logistica: toggle(e.logistica, 'recepcao') })} label="Recepção / check-in" />
-          <Check checked={e.logistica.includes('transporte')} onChange={() => setE({ ...e, logistica: toggle(e.logistica, 'transporte') })} label="Transporte dos participantes" />
-          <Check checked={e.logistica.includes('mais_de_um_dia')} onChange={() => setE({ ...e, logistica: toggle(e.logistica, 'mais_de_um_dia') })} label="Evento de mais de 1 dia" hint="hospedagem" />
-          <Check checked={e.logistica.includes('estacionamento')} onChange={() => setE({ ...e, logistica: toggle(e.logistica, 'estacionamento') })} label="Estacionamento / valet" />
-        </Pergunta>
-      )}
-
-      {passo === 10 && (
-        <Pergunta titulo="O que o espaço escolhido já inclui?">
-          <p className="lede" style={{ fontSize: 14 }}>
-            Marcamos como “já incluso” para você não cotar em dobro.
-          </p>
-          {OPCOES_INCLUSOS.map((o) => (
-            <Check
-              key={o.id}
-              checked={e.inclusos.includes(o.id)}
-              onChange={() => setE({ ...e, inclusos: toggle(e.inclusos, o.id) })}
-              label={o.label}
-            />
-          ))}
-        </Pergunta>
-      )}
-
-      <div className="step-footer">
-        <button
-          className="btn"
-          onClick={() => (passo === 1 ? setModo('intro') : setPasso(passo - 1))}
-        >
-          ← Voltar
-        </button>
-        <button
-          className="btn btn-primary"
-          disabled={!podeAvancar()}
-          onClick={() => {
-            if (passo < TOTAL_PASSOS) setPasso(passo + 1);
-            else {
-              setDesligadas(new Set());
-              setModo('revisao');
-            }
-          }}
-        >
-          {passo < TOTAL_PASSOS ? 'Continuar →' : 'Ver categorias →'}
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 
-/* ---------- blocos auxiliares ---------- */
-
-function Pergunta({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function IconeBusca() {
   return (
-    <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-      <legend>
-        <h1 style={{ marginTop: 8 }}>{titulo}</h1>
-      </legend>
-      {children}
-    </fieldset>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.6-3.6" />
+    </svg>
+  );
+}
+
+function podeAvancar(passo: number, e: Estado): boolean {
+  if (passo === 1) return e.tipo != null;
+  if (passo === 2) return e.pessoas != null;
+  if (passo === 3) return e.local != null;
+  if (passo === 4) return e.semComida || e.comida.length > 0 || e.openBar;
+  return true; // o passo 5 é pulável
+}
+
+/* ---------------- blocos ---------------- */
+
+function Passos({ atual }: { atual: number }) {
+  return (
+    <div className="stepbar">
+      <div className="stepbar-row">
+        <span className="eyebrow">
+          {atual} de {TOTAL_PASSOS}
+        </span>
+      </div>
+      <div
+        className="track"
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={TOTAL_PASSOS}
+        aria-valuenow={atual}
+        aria-label={`Passo ${atual} de ${TOTAL_PASSOS}`}
+      >
+        <span
+          className="track-fill"
+          style={{ '--fill': atual / TOTAL_PASSOS } as React.CSSProperties}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -585,12 +691,11 @@ function Radio({
   hint?: string;
 }) {
   return (
-    <label className="option-card">
+    <label className="opt">
       <input type="radio" name={name} checked={checked} onChange={onChange} />
-      <span>
-        <span className="option-label">{label}</span>
-        {hint && <span className="option-hint"> ({hint})</span>}
-      </span>
+      <span className="opt-box" aria-hidden="true" />
+      <span className="opt-label">{label}</span>
+      {hint && <span className="opt-hint">{hint}</span>}
     </label>
   );
 }
@@ -599,53 +704,169 @@ function Check({
   checked,
   onChange,
   label,
-  hint,
   disabled,
 }: {
   checked: boolean;
   onChange: () => void;
   label: string;
-  hint?: string;
   disabled?: boolean;
 }) {
   return (
-    <label className="option-card" style={disabled ? { opacity: 0.5 } : undefined}>
+    <label className="opt">
       <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
-      <span>
-        <span className="option-label">{label}</span>
-        {hint && <span className="option-hint"> ({hint})</span>}
-      </span>
+      <span className="opt-box" aria-hidden="true" />
+      <span className="opt-label">{label}</span>
     </label>
   );
 }
 
-function CampoCidade({ cidade, setCidade }: { cidade: string; setCidade: (c: string) => void }) {
-  // Erro inline (DS §4.4): borda --danger + mensagem com ícone abaixo do campo.
-  // Só depois do primeiro blur — não gritar antes de a pessoa interagir.
-  const [tocado, setTocado] = useState(false);
-  const comErro = tocado && !cidade.trim();
+function MetaLinha({
+  tipo,
+  pessoas,
+  cidade,
+  setCidade,
+  categorias,
+}: {
+  tipo: TipoEvento | null;
+  pessoas: Estado['pessoas'];
+  cidade: string;
+  setCidade: (c: string) => void;
+  categorias: number | null;
+}) {
+  const [editando, setEditando] = useState(false);
+  const partes: string[] = [];
+  if (tipo) partes.push(TIPOS_EVENTO.find((t) => t.id === tipo)?.label ?? '');
+  if (pessoas) partes.push(PESSOAS_LABEL[pessoas]);
+  if (categorias != null)
+    partes.push(`${categorias} ${categorias === 1 ? 'categoria' : 'categorias'}`);
+
   return (
-    <p style={{ margin: '16px 0' }}>
-      <label htmlFor="cidade" style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>
-        Em que cidade?
-      </label>
-      <input
-        id="cidade"
-        className={`card${comErro ? ' input-erro' : ''}`}
-        style={{ width: '100%', minHeight: 44, font: 'inherit' }}
-        value={cidade}
-        onChange={(ev) => setCidade(ev.target.value)}
-        onBlur={() => setTocado(true)}
-        placeholder="ex.: Curitiba"
-        autoComplete="address-level2"
-        aria-invalid={comErro || undefined}
-        aria-describedby={comErro ? 'cidade-erro' : undefined}
-      />
-      {comErro && (
-        <span id="cidade-erro" className="campo-erro" role="alert">
-          <span aria-hidden="true">⚠</span> Informe a cidade para pesquisar.
-        </span>
+    <p className="lede">
+      {partes.filter(Boolean).map((p) => (
+        <span key={p}>{p} · </span>
+      ))}
+      {editando ? (
+        <input
+          className="input"
+          autoFocus
+          value={cidade}
+          aria-label="Cidade"
+          placeholder="Curitiba"
+          autoComplete="address-level2"
+          onChange={(ev) => setCidade(ev.target.value)}
+          onBlur={() => setEditando(false)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              setEditando(false);
+            }
+          }}
+          aria-invalid={cidade.trim().length < 2}
+        />
+      ) : (
+        <button
+          type="button"
+          className="token-city"
+          onClick={() => setEditando(true)}
+          aria-label={`Trocar cidade. Agora: ${cidade || 'nenhuma'}`}
+        >
+          {cidade.trim() || 'escolher cidade'} ✎
+        </button>
       )}
     </p>
+  );
+}
+
+function AvisoCurto({ texto }: { texto: string }) {
+  // O aviso longo viaja inteiro até o ranking e o PDF; na tela só entra a
+  // primeira frase, e o resto fica a um toque.
+  const corte = texto.indexOf('. ');
+  const curto = corte > 0 ? texto.slice(0, corte + 1) : texto;
+  const resto = corte > 0 ? texto.slice(corte + 2) : '';
+  return (
+    <div className="note note-warn">
+      <p>{curto}</p>
+      {resto && (
+        <Disclose rotulo="ver o que muda" rotuloAberto="ocultar">
+          <p>{resto}</p>
+        </Disclose>
+      )}
+    </div>
+  );
+}
+
+function ListaDeCategorias({
+  ligadas,
+  excedentes,
+  editando,
+  onAlternar,
+}: {
+  ligadas: string[];
+  excedentes: string[];
+  editando: boolean;
+  onAlternar: (id: string) => void;
+}) {
+  const familias = Object.entries(FAMILIAS).filter(([fam]) =>
+    ligadas.some((c) => CATEGORIAS.find((x) => x.id === c)?.familia === fam),
+  );
+
+  return (
+    <>
+      {familias.map(([fam, famLabel]) => (
+        <section key={fam} className="chipgroup">
+          <p className="eyebrow">{famLabel}</p>
+          <div className="chips">
+            {ligadas
+              .filter((c) => CATEGORIAS.find((x) => x.id === c)?.familia === fam)
+              .map((c) =>
+                editando ? (
+                  <button
+                    key={c}
+                    type="button"
+                    className="chip"
+                    aria-pressed={true}
+                    aria-label={`${categoriaLabel(c)}, na pesquisa. Tocar remove.`}
+                    onClick={() => onAlternar(c)}
+                  >
+                    {categoriaLabel(c)}
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                ) : (
+                  <span key={c} className="chip-static">
+                    <span aria-hidden="true">✓</span>
+                    {categoriaLabel(c)}
+                  </span>
+                ),
+              )}
+          </div>
+        </section>
+      ))}
+
+      {editando && <p className="caption subtle">Toque para tirar ou devolver.</p>}
+
+      {editando && excedentes.length > 0 && (
+        <Disclose
+          rotulo={`Fora desta pesquisa: ${excedentes.slice(0, 2).map(categoriaLabel).join(', ')}${
+            excedentes.length > 2 ? ` +${excedentes.length - 2}` : ''
+          }`}
+          rotuloAberto="ocultar as de fora"
+        >
+          <div className="chips">
+            {excedentes.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className="chip"
+                aria-pressed={false}
+                aria-label={`${categoriaLabel(c)}, fora da pesquisa`}
+                onClick={() => onAlternar(c)}
+              >
+                {categoriaLabel(c)}
+              </button>
+            ))}
+          </div>
+        </Disclose>
+      )}
+    </>
   );
 }

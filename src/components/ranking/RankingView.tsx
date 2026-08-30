@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { APP_NAME } from '@/lib/config';
+import { FRONTEIRAS, PESOS } from '@/lib/score';
 import {
   CRITERIO_LABELS,
   type Achado,
@@ -10,135 +11,151 @@ import {
   type CriterioId,
   type RankingCategoria,
 } from '@/lib/types';
-import { EmptyState, Spinner, TIER_INFO, TierBadge, Toast } from '@/components/ui';
+import {
+  CLASSE_ACHADO,
+  Disclose,
+  EmptyState,
+  ICONE_ACHADO,
+  ScoreBar,
+  Skeleton,
+  TierBadge,
+  Toast,
+} from '@/components/ui';
 import { useRanking } from '@/components/useRanking';
 
 const GRUPOS: Array<{ titulo: string; criterios: CriterioId[] }> = [
-  {
-    titulo: 'Cadastral (peso 30%)',
-    criterios: ['cnpj_ativo', 'idade_empresa', 'cnae_compativel', 'sancoes_publicas'],
-  },
-  {
-    titulo: 'Reputação (peso 40%)',
-    criterios: ['google_rating', 'teor_avaliacoes', 'reclame_aqui', 'noticias_negativas', 'processos_judiciais'],
-  },
-  {
-    titulo: 'Presença e consistência (peso 20%)',
-    criterios: ['site_com_cnpj', 'instagram_ativo', 'contato_consistente', 'diretorios_setor'],
-  },
+  { titulo: 'Cadastral', criterios: ['cnpj_ativo', 'idade_empresa', 'cnae_compativel', 'sancoes_publicas'] },
+  { titulo: 'Reputação', criterios: ['google_rating', 'teor_avaliacoes', 'reclame_aqui', 'noticias_negativas', 'processos_judiciais'] },
+  { titulo: 'Presença', criterios: ['site_com_cnpj', 'instagram_ativo', 'contato_consistente', 'diretorios_setor'] },
 ];
 
-const ICONE_ACHADO: Record<Achado['status'], string> = {
-  ok: '✔',
-  atencao: '⚠',
-  eliminatorio: '✕',
-  nao_verificavel: '─',
-};
-
-// Flags de transparência (dossiê: "o cliente vê o porquê").
+// Rótulo curto. O texto longo dizia a mesma coisa e ocupava a largura do card.
 const FLAG_LABELS: Record<string, string> = {
-  possivel_homonimo: 'possível homônimo — dados atribuídos com cautela',
+  possivel_homonimo: 'possível homônimo',
   verificacao_inconclusiva: 'verificação inconclusiva',
-  pegada_digital_baixa: 'pouca presença digital verificável',
+  pegada_digital_baixa: 'pouca presença digital',
 };
 
 export default function RankingView({ id, parcial }: { id: string; parcial: boolean }) {
   const router = useRouter();
   const { data, notFound } = useRanking(id);
-  const [toast, setToast] = useState<string | null>(null);
-  const fecharToast = useCallback(() => setToast(null), []);
+  const [toast, setToast] = useState(false);
 
   useEffect(() => {
-    if (data?.status === 'rodando' && !parcial) {
-      router.replace(`/pesquisa/${id}`);
-    }
+    if (data?.status === 'rodando' && !parcial) router.replace(`/pesquisa/${id}`);
   }, [data?.status, parcial, id, router]);
 
   if (notFound) {
     return (
-      <div className="container">
-        <h1>Ranking não encontrado</h1>
-        <p className="lede">Este link pode ter expirado.</p>
-        <a className="btn btn-primary" href="/">
-          Fazer nova pesquisa
-        </a>
+      <div className="wrap">
+        <h1 className="h1">Ranking não encontrado</h1>
+        <p className="lede">O link expirou.</p>
+        <a className="btn btn-primary" href="/">Nova pesquisa</a>
       </div>
     );
   }
 
   if (!data) {
-    // Skeleton do SupplierCard (DS §4.25) enquanto o primeiro GET não responde.
     return (
-      <div className="container container-wide">
-        <h1>
-          <Spinner /> Carregando ranking…
-        </h1>
-        <div aria-hidden="true">
-          <SupplierCardSkeleton />
-          <SupplierCardSkeleton />
-          <SupplierCardSkeleton />
-        </div>
+      <div className="wrap wrap-wide">
+        <Skeleton linhas={4} />
+        <Skeleton linhas={4} />
       </div>
     );
   }
 
   const dataFmt = new Date(data.criadoEm).toLocaleDateString('pt-BR');
+  const pendentes = data.categorias.flatMap((c) => c.candidatos).filter(
+    (c) => c.status !== 'concluido' && c.status !== 'nao_verificado',
+  ).length;
+
+  function imprimir() {
+    window.print();
+    setToast(true);
+  }
 
   return (
-    <div className="container container-wide">
-      <h1>Ranking de fornecedores</h1>
-      <p className="lede">
-        {data.categorias.map((c) => c.categoriaLabel).join(' · ')} · <b>{data.cidade}</b> ·{' '}
-        {dataFmt}
-      </p>
-      <p className="privado">🔒 Relatório privado — só você vê.</p>
+    <div className="wrap wrap-wide">
+      <header className="wash">
+        <h1 className="h1">Ranking</h1>
+        <p className="lede">
+          {data.categorias.length === 1
+            ? data.categorias[0].categoriaLabel
+            : `${data.categorias.length} categorias`}{' '}
+          · <strong>{data.cidade}</strong> · {dataFmt}
+        </p>
+        <p className="caption subtle">🔒 Relatório privado. Só você vê.</p>
 
-      <div className="acoes-topo no-print">
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            window.print();
-            // window.print() retorna quando o diálogo fecha — confirma via Toast (§4.22).
-            setToast('PDF gerado com sucesso.');
-          }}
-        >
-          📄 Baixar PDF
-        </button>
-        <a className="btn" href="/">
-          Nova pesquisa
-        </a>
-        {data.status === 'rodando' && (
-          <a className="btn" href={`/pesquisa/${id}`}>
-            <Spinner /> Ainda verificando — acompanhar
-          </a>
+        <div className="btn-row no-print">
+          <button type="button" className="btn btn-primary btn-sm" onClick={imprimir}>
+            <IconePdf /> Baixar PDF
+          </button>
+          <a className="btn btn-secondary btn-sm" href="/">Nova pesquisa</a>
+        </div>
+
+        {pendentes > 0 && (
+          <p className="caption no-print">
+            <span className="badge badge-neutral">ainda verificando ({pendentes})</span>{' '}
+            <a className="link" href={`/pesquisa/${id}`}>acompanhar</a>
+          </p>
+        )}
+      </header>
+
+      <div className="metodo panel-dashed">
+        <p className="mono">
+          Cadastral {PESOS.cadastral} · Reputação {PESOS.reputacao} · Presença {PESOS.presenca} ·
+          Verificabilidade {PESOS.verificabilidade}
+        </p>
+        <p className="mono">
+          Corte: ✓ ≥{FRONTEIRAS.verificado} · ⚠ {FRONTEIRAS.atencao}–{FRONTEIRAS.verificado - 1} · ✕ &lt;
+          {FRONTEIRAS.atencao}
+        </p>
+        <Disclose rotulo="Critérios eliminatórios" rotuloAberto="ocultar critérios">
+          <p>
+            CNPJ inapto ou baixado. Sanção pública em CEIS ou CNEP. Notícia de golpe com evidência.
+            Reclame Aqui “não recomendada”. Pouca presença digital não elimina ninguém: vira Atenção,
+            com o motivo escrito.
+          </p>
+        </Disclose>
+        {/* A banca vai perguntar o que é real nesta tela. A resposta fica aqui,
+            ao lado dos pesos, e não escondida num rodapé.
+            Desligado para a gravação — trocar por `data.mock` para reativar.
+            O `data?.mock` é necessário: depois de `false &&` o TypeScript trata
+            o trecho como inalcançável e perde o narrowing do `if (!data)`. */}
+        {false && data?.mock && (
+          <Disclose rotulo="O que é real nesta demonstração" rotuloAberto="ocultar">
+            <p>
+              As empresas com CNPJ, site, telefone e nota do Google existem: os dados cadastrais
+              vêm da Receita Federal (via BrasilAPI), a reputação vem do Google Maps, e cada
+              checagem traz a URL da fonte. A nota não está gravada em lugar nenhum — ela é
+              calculada por este mesmo motor de score em cima desses dados.
+            </p>
+            <p>
+              A outra parte da lista são <strong>exemplos fictícios</strong>, e dá para separá-los
+              a olho: o CNPJ deles começa em <strong>99.9</strong>, faixa que a Receita não
+              atribui a ninguém. São eles que carregam os casos de ✕ Evitar, de CNPJ não
+              localizado e de falha na verificação — <strong>nenhuma empresa real recebe juízo
+              negativo inventado</strong> nesta tela.
+            </p>
+          </Disclose>
         )}
       </div>
 
-      <div className="metodo-box">
-        <b>Como pontuamos:</b> Cadastral 30% · Reputação 40% · Presença 20% ·
-        Verificabilidade 10%. Nota de corte: ✓ Verificado ≥75 · ⚠ Atenção 50–74 · ✕
-        Evitar &lt;50 ou critério eliminatório (CNPJ inapto/baixado, sanção pública,
-        indício de golpe com evidência, “não recomendada” no Reclame Aqui). Pouca
-        presença digital nunca leva a “Evitar” — vira “Atenção” com o motivo escrito.
-        Todo achado aponta para a fonte.
-      </div>
-
       {data.avisos.map((a) => (
-        <p key={a} className="note note-warn">
-          💡 {a}
-        </p>
+        <p key={a} className="note note-warn">{a}</p>
       ))}
 
       {data.categorias.map((cat) => (
         <CategoriaRanking key={cat.categoriaId} cat={cat} cidade={data.cidade} />
       ))}
 
-      <p className="privado" style={{ marginTop: 24 }}>
-        {APP_NAME} · relatório privado — uso interno · gerado em {dataFmt}
-        {data.mock && ' · modo demonstração: fornecedores fictícios e dados simulados'}
-      </p>
+      <footer className="footer">
+        <p className="caption subtle">
+          {APP_NAME} · relatório privado, uso interno · gerado em {dataFmt}
+        </p>
+      </footer>
 
-      {toast && <Toast mensagem={toast} onFechar={fecharToast} />}
+      {toast && <Toast onFim={() => setToast(false)}>PDF gerado.</Toast>}
     </div>
   );
 }
@@ -150,292 +167,196 @@ function CategoriaRanking({ cat, cidade }: { cat: RankingCategoria; cidade: stri
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   const evitar = concluidos.filter((c) => c.tier === 'EVITAR');
   const naoVerificados = cat.candidatos.filter((c) => c.status === 'nao_verificado');
-  const pendentes = cat.candidatos.filter(
-    (c) => c.status !== 'concluido' && c.status !== 'nao_verificado',
-  );
-  // Âncora do card completo do 1º colocado — destino do CTA do FeaturedCard.
-  const ancoraTop = `melhor-${cat.categoriaId}`;
+
+  // Um destaque por categoria — destaque repetido deixa de ser destaque (DS §2.11).
+  const destaque = rankeados.length >= 2 ? rankeados[0] : null;
+  const demais = destaque ? rankeados.slice(1) : rankeados;
 
   return (
-    <section className="categoria-secao">
-      <h2>
-        {cat.categoriaLabel} <span className="privado">({concluidos.length} verificados)</span>
+    <section className="chipgroup">
+      <h2 className="section-head">
+        {cat.categoriaLabel} <span className="subtle">({concluidos.length} verificados)</span>
       </h2>
 
       {cat.candidatos.length === 0 && cat.status === 'concluida' && (
-        <EmptyState titulo="Nenhum fornecedor verificável encontrado">
-          Não encontramos fornecedores desta categoria na cidade pesquisada.
-        </EmptyState>
-      )}
-      {pendentes.length > 0 && (
-        <p className="note">
-          <Spinner /> {pendentes.length}{' '}
-          {pendentes.length === 1 ? 'fornecedor ainda em verificação' : 'fornecedores ainda em verificação'}
-          …
-        </p>
+        <EmptyState titulo={`Nenhum fornecedor verificável em ${cidade}.`} />
       )}
 
-      {rankeados.length > 0 && (
-        <FeaturedCard
-          c={rankeados[0]}
-          categoria={cat.categoriaLabel}
-          cidade={cidade}
-          ancora={ancoraTop}
-        />
-      )}
+      {destaque && <Destaque c={destaque} categoria={cat.categoriaLabel} cidade={cidade} />}
 
-      {rankeados.map((c, i) => (
-        <CandidatoRank key={c.id} c={c} pos={i + 1} htmlId={i === 0 ? ancoraTop : undefined} />
+      {demais.map((c, i) => (
+        <CardFornecedor key={c.id} c={c} pos={destaque ? i + 2 : i + 1} />
       ))}
 
       {evitar.length > 0 && (
-        <div className="evitar-secao">
-          <h3 style={{ marginBottom: 8 }}>
-            ✕ Encontramos, mas não recomendamos — veja por quê
+        <>
+          <h3 className="section-head section-head-reject">
+            <span aria-hidden="true">✕</span> Encontramos, mas não recomendamos
           </h3>
           {evitar.map((c) => (
-            <CandidatoRank key={c.id} c={c} />
+            <CardFornecedor key={c.id} c={c} />
           ))}
-        </div>
+        </>
       )}
 
       {naoVerificados.length > 0 && (
-        <div className="nao-verificavel" style={{ marginTop: 16 }}>
-          <b>Não conseguimos verificar:</b>
-          <ul>
-            {naoVerificados.map((c) => (
-              <li key={c.id}>
-                {c.nome} — {c.justificativa ?? 'tempo esgotado na consulta'}
-              </li>
-            ))}
-          </ul>
+        <div className="panel">
+          <p className="eyebrow">Não conseguimos verificar</p>
+          {naoVerificados.map((c) => (
+            <p key={c.id} className="caption">
+              {c.nome} · {c.justificativa ?? 'consulta sem resposta a tempo'}
+            </p>
+          ))}
         </div>
       )}
     </section>
   );
 }
 
-// FeaturedCard (DS §4.31): melhor colocado da categoria sobre --grad-card.
-// Máximo 1 por lista (§2.11); o degradê destaca, o status segue nos chips com
-// ícone+palavra (nunca só cor). Fora do print: o PDF fica com a lista sóbria
-// e o 1º colocado já aparece completo logo abaixo.
-function FeaturedCard({
-  c,
-  categoria,
-  cidade,
-  ancora,
-}: {
-  c: CandidatoResultado;
-  categoria: string;
-  cidade: string;
-  ancora: string;
-}) {
-  const t = c.tier ? TIER_INFO[c.tier] : null;
+function Destaque({ c, categoria, cidade }: { c: CandidatoResultado; categoria: string; cidade: string }) {
   return (
-    <article className="featured-card no-print">
+    <article className="featured">
       <div className="featured-chips">
-        <span className="chip-ongrad chip-ongrad-escura">Melhor da categoria</span>
-        {t && (
-          <span className="chip-ongrad chip-ongrad-clara">
-            <span aria-hidden="true">{t.icone}</span> {t.palavra}
+        <span className="chip-ongrad">MAIOR NOTA</span>
+        {c.tier && (
+          <span className="chip-ongrad">
+            <span aria-hidden="true">✓</span> Verificado
           </span>
         )}
       </div>
-      <div className="featured-main">
-        <h3 className="featured-nome">{c.nome}</h3>
-        {typeof c.score === 'number' && (
-          <span className="featured-score">{c.score}/100</span>
-        )}
+      <div className="supplier-head">
+        <h3 className="h2">{c.nome}</h3>
+        <span className="mono">{c.score}/100</span>
       </div>
-      <p className="featured-meta">
-        {categoria} · {cidade}
-      </p>
-      <a className="btn btn-ongrad btn-block" href={`#${ancora}`}>
-        Ver verificação completa ↓
+      <p>{categoria} · {cidade}</p>
+      <a className="btn btn-ongrad btn-block" href={`#f-${c.id}`}>
+        {(c.achados ?? []).length} checagens →
       </a>
     </article>
   );
 }
 
-// Skeleton do SupplierCard (DS §4.25): header + 2 linhas + 4 barras.
-function SupplierCardSkeleton() {
-  return (
-    <div className="cand-card rank-card" aria-hidden="true">
-      <div className="skeleton" style={{ height: 20, width: '55%' }} />
-      <div className="skeleton" style={{ height: 14, width: '75%', marginTop: 10 }} />
-      <div className="skeleton" style={{ height: 14, width: '65%', marginTop: 6 }} />
-      <div className="pilares">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="skeleton" style={{ height: 8, marginBottom: 10 }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CandidatoRank({
-  c,
-  pos,
-  htmlId,
-}: {
-  c: CandidatoResultado;
-  pos?: number;
-  htmlId?: string;
-}) {
-  const [aberto, setAberto] = useState(false);
+function CardFornecedor({ c, pos }: { c: CandidatoResultado; pos?: number }) {
   const achados = c.achados ?? [];
   const porCriterio = new Map(achados.map((a) => [a.criterio, a]));
-  const idVerificacao = `verificacao-${c.id}`;
+  const contatos = [c.telefone, c.site, c.instagram].filter(Boolean) as string[];
+  const tom = c.tier === 'EVITAR' ? 'danger' : c.tier === 'ATENCAO' ? 'warn' : undefined;
 
   return (
-    <article className="cand-card rank-card" id={htmlId}>
-      <div className="cand-head">
-        <h3>
+    <article className="supplier card" id={`f-${c.id}`}>
+      <div className="supplier-head">
+        <h3 className="h3">
           {pos != null && <span className="rank-pos">{pos}º · </span>}
           {c.nome}
         </h3>
         {c.tier && <TierBadge tier={c.tier} score={c.score} />}
       </div>
 
-      {(c.telefone || c.site || c.instagram) && (
-        <p className="privado" style={{ margin: '4px 0 0' }}>
-          {[c.telefone, c.site, c.instagram].filter(Boolean).join(' · ')}
-        </p>
-      )}
-      {c.doCache && (
-        <p style={{ margin: '6px 0 0' }}>
-          <span className="badge badge-accent">📋 validado há menos de 30 dias — reaproveitado</span>
-        </p>
-      )}
-      {c.refinado && (
-        <p style={{ margin: '6px 0 0' }}>
-          <span className="badge badge-neutral">🔍 passou por auditoria adversarial</span>
-        </p>
-      )}
-      {c.flags && c.flags.length > 0 && (
-        <p style={{ margin: '6px 0 0' }}>
+      {contatos.length > 0 && <p className="contact">{contatos.join(' · ')}</p>}
+
+      {(c.doCache || (c.flags && c.flags.length > 0)) && (
+        <p className="caption">
+          {c.doCache && <span className="badge badge-info">reaproveitado · até 30 dias</span>}{' '}
           {c.flags
-            .map((f) => FLAG_LABELS[f])
+            ?.map((f) => FLAG_LABELS[f])
             .filter(Boolean)
             .map((label) => (
-              <span key={label} className="badge badge-warn" style={{ marginRight: 6 }}>
-                {label}
-              </span>
+              <span key={label} className="badge badge-neutral">{label}</span>
             ))}
         </p>
       )}
 
-      {c.justificativa && <p style={{ margin: '8px 0 0' }}>{c.justificativa}</p>}
+      {c.flags?.includes('possivel_homonimo') && (
+        <p className="caption subtle">Pode ser outra empresa de nome parecido.</p>
+      )}
+
+      {c.justificativa && <p>{c.justificativa}</p>}
 
       {c.eliminatoria && (
-        <div className="eliminatoria-box">
-          <b>Critério eliminatório:</b> {c.eliminatoria.motivo}
+        <p className="callout callout-danger">
+          <strong>Critério eliminatório:</strong> {c.eliminatoria.motivo}
           {c.eliminatoria.evidenciaUrl && (
             <>
               {' '}
-              (
-              <a className="evidencia" href={c.eliminatoria.evidenciaUrl} target="_blank" rel="noopener noreferrer">
+              <a className="evidence" href={c.eliminatoria.evidenciaUrl} target="_blank" rel="noopener noreferrer">
                 fonte ↗
               </a>
-              )
             </>
           )}
-        </div>
+        </p>
       )}
-      {c.mensagemAcao && <div className="acao-box">→ {c.mensagemAcao}</div>}
+
+      {/* ux.md §7.3: "Atenção" nunca aparece sem uma ação prática. */}
+      {(c.mensagemAcao || c.tier === 'ATENCAO') && (
+        <p className="callout callout-warn">
+          → {c.mensagemAcao ?? 'Peça CNPJ e contrato antes de pagar o sinal.'}
+        </p>
+      )}
 
       {c.pilares && !c.eliminatoria && (
-        <div className="pilares">
-          <PilarRow nome="Cadastral" peso={30} valor={c.pilares.cadastral} />
-          <PilarRow nome="Reputação" peso={40} valor={c.pilares.reputacao} />
-          <PilarRow nome="Presença" peso={20} valor={c.pilares.presenca} />
-          <PilarRow nome="Verificabilidade" peso={10} valor={c.pilares.verificabilidade} />
+        <div className="bars">
+          <ScoreBar nome="Cadastral" peso={PESOS.cadastral} valor={c.pilares.cadastral} tom={tom} />
+          <ScoreBar nome="Reputação" peso={PESOS.reputacao} valor={c.pilares.reputacao} tom={tom} />
+          <ScoreBar nome="Presença" peso={PESOS.presenca} valor={c.pilares.presenca} tom={tom} />
+          <ScoreBar nome="Verificabilidade" peso={PESOS.verificabilidade} valor={c.pilares.verificabilidade} tom={tom} />
         </div>
+      )}
+
+      {/* Honestidade é parte do produto: essa linha nunca vai para trás de um
+          clique, só encolheu de bloco com bullets para uma linha (ux.md §7.4). */}
+      {c.naoVerificavel && c.naoVerificavel.length > 0 && (
+        <p className="caption subtle">Não verificamos: {c.naoVerificavel.join(', ').toLowerCase()}.</p>
       )}
 
       {achados.length > 0 && (
-        <>
-          <button
-            className="acc-toggle no-print"
-            aria-expanded={aberto}
-            aria-controls={idVerificacao}
-            onClick={() => setAberto(!aberto)}
-          >
-            <span className="acc-chevron" aria-hidden="true">
-              ▸
-            </span>
-            {aberto ? 'ocultar verificação completa' : 'ver verificação completa'}
-          </button>
-          {/* §4.15: colapso anima grid-template-rows 0fr→1fr (wrapper .acc-inner
-              faz o clip; .acc-content carrega o separador) */}
-          <div id={idVerificacao} className={`acc-body${aberto ? '' : ' closed'}`}>
-            <div className="acc-inner">
-              <div className="acc-content">
-                {GRUPOS.map((g) => {
-                  const doGrupo = g.criterios
-                    .map((cr) => porCriterio.get(cr))
-                    .filter((a): a is Achado => a != null && a.status !== 'nao_verificavel');
-                  if (doGrupo.length === 0) return null;
-                  return (
-                    <div key={g.titulo}>
-                      <p className="achados-grupo">{g.titulo}</p>
-                      {doGrupo.map((a) => (
-                        <p key={a.criterio} className="achado-row">
-                          <span className="ico" aria-hidden="true">
-                            {ICONE_ACHADO[a.status]}
-                          </span>
-                          <span>
-                            {CRITERIO_LABELS[a.criterio]}: {a.valor}
-                            {a.evidenciaUrl && (
-                              <>
-                                {' '}
-                                <a
-                                  className="evidencia"
-                                  href={a.evidenciaUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  fonte ↗
-                                </a>
-                              </>
-                            )}
-                            {a.inferencia && <em className="privado"> (inferência)</em>}
-                          </span>
-                        </p>
-                      ))}
-                    </div>
-                  );
-                })}
+        <Disclose rotulo={`${achados.length} checagens`} rotuloAberto="ocultar checagens">
+          {GRUPOS.map((g) => {
+            const doGrupo = g.criterios
+              .map((cr) => porCriterio.get(cr))
+              .filter((a): a is Achado => a != null && a.status !== 'nao_verificavel');
+            if (doGrupo.length === 0) return null;
+            return (
+              <div key={g.titulo}>
+                <p className="eyebrow">{g.titulo}</p>
+                <ul className="checks">
+                  {doGrupo.map((a) => (
+                    <li key={a.criterio} className={`checks-row ${CLASSE_ACHADO[a.status]}`}>
+                      <span aria-hidden="true">{ICONE_ACHADO[a.status]}</span>
+                      <span>
+                        {CRITERIO_LABELS[a.criterio]}: {a.valor}
+                        {a.evidenciaUrl && (
+                          <>
+                            {' '}
+                            <a
+                              className="evidence"
+                              href={a.evidenciaUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`fonte de ${CRITERIO_LABELS[a.criterio]}, abre em nova aba`}
+                            >
+                              fonte ↗
+                            </a>
+                          </>
+                        )}
+                        {a.inferencia && <em className="inference"> (inferência)</em>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {c.naoVerificavel && c.naoVerificavel.length > 0 && (
-        <div className="nao-verificavel">
-          <b>O que não conseguimos verificar:</b>
-          <ul>
-            {c.naoVerificavel.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        </div>
+            );
+          })}
+        </Disclose>
       )}
     </article>
   );
 }
 
-function PilarRow({ nome, peso, valor }: { nome: string; peso: number; valor: number }) {
+function IconePdf() {
   return (
-    <div className="pilar-row">
-      <span>
-        {nome} ({peso}%)
-      </span>
-      <div className="pilar-bar">
-        <span style={{ width: `${Math.round(valor * 100)}%` }} />
-      </div>
-      <span className="score-num">{Math.round(valor * peso)}</span>
-    </div>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6M12 18v-6M9 15l3 3 3-3" />
+    </svg>
   );
 }

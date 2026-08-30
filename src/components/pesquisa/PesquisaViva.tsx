@@ -1,281 +1,323 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { CRITERIO_LABELS, type Achado, type CandidatoResultado, type CriterioId, type RankingCategoria } from '@/lib/types';
-import { EmptyState, Spinner, TierBadge } from '@/components/ui';
+import {
+  CRITERIO_LABELS,
+  type Achado,
+  type CandidatoResultado,
+  type CriterioId,
+  type RankingCategoria,
+} from '@/lib/types';
+import {
+  CLASSE_ACHADO,
+  Disclose,
+  EmptyState,
+  ICONE_ACHADO,
+  SkeletonFornecedor,
+  Spinner,
+  TierBadge,
+} from '@/components/ui';
 import { useRanking } from '@/components/useRanking';
 
+// Ordem real em que o Verificador fecha os critérios — é ela que a fileira de
+// pontos acende, então a tela conta a verdade sobre o que já aconteceu.
 const ORDEM_CRITERIOS = Object.keys(CRITERIO_LABELS) as CriterioId[];
 
-const ICONE_ACHADO: Record<Achado['status'], string> = {
-  ok: '✔',
-  atencao: '⚠',
-  eliminatorio: '✕',
-  nao_verificavel: '─',
-};
-
-// Etapas exibidas no SearchProgress (§4.24) enquanto não há nada concreto
-// para mostrar — espelham as fontes reais consultadas pela pipeline.
-const ETAPAS_BUSCA = [
-  'Consultando Receita Federal…',
-  'Buscando avaliações no Google…',
-  'Verificando Reclame Aqui…',
-  'Checando notícias e processos…',
-  'Analisando presença digital…',
-];
-
-// SearchProgress (DS §4.24): card central com spinner 32px, sublinha que troca
-// a cada etapa e barra indeterminada. A troca de texto é conteúdo (interval),
-// não animação — spinner e barra congelam sob prefers-reduced-motion via CSS.
-function SearchProgress() {
-  const [etapa, setEtapa] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setEtapa((e) => (e + 1) % ETAPAS_BUSCA.length), 2200);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <div className="card search-progress">
-      <span className="spinner spinner-lg" aria-hidden="true" />
-      <h3>Pesquisando fornecedores…</h3>
-      <p className="etapa">{ETAPAS_BUSCA[etapa]}</p>
-      <div className="progress-indeterminada" aria-hidden="true" />
-    </div>
-  );
+function pronto(c: CandidatoResultado): boolean {
+  return c.status === 'concluido' || c.status === 'nao_verificado';
 }
 
 export default function PesquisaViva({ id }: { id: string }) {
   const router = useRouter();
   const { data, notFound, erroRede } = useRanking(id);
-  const jaRedirecionou = useRef(false);
+  const jaFoi = useRef(false);
 
   useEffect(() => {
-    if (data?.status === 'concluida' && !jaRedirecionou.current) {
-      jaRedirecionou.current = true;
-      const t = setTimeout(() => router.push(`/ranking/${id}`), 1500);
+    if (data?.status === 'concluida' && !jaFoi.current) {
+      jaFoi.current = true;
+      const t = setTimeout(() => router.push(`/ranking/${id}`), 1200);
       return () => clearTimeout(t);
     }
   }, [data?.status, id, router]);
 
   if (notFound) {
     return (
-      <div className="container">
-        <h1>Pesquisa não encontrada</h1>
-        <p className="lede">
-          Este link pode ter expirado (no modo demonstração as pesquisas não ficam salvas
-          para sempre).
-        </p>
-        <a className="btn btn-primary" href="/">
-          Fazer nova pesquisa
-        </a>
+      <div className="wrap">
+        <h1 className="h1">Pesquisa não encontrada</h1>
+        <p className="lede">O link expirou. Refaça a pesquisa.</p>
+        <a className="btn btn-primary" href="/">Nova pesquisa</a>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="container">
-        <h1>Preparando a pesquisa…</h1>
-        <SearchProgress />
-        {erroRede && (
-          <p className="note note-warn" role="alert">
-            Sem resposta do servidor — tentando de novo…
-          </p>
-        )}
+      <div className="wrap wrap-wide">
+        <h1 className="h1 reticencias">Abrindo a pesquisa</h1>
+        <div className="track">
+          <span className="track-fill is-indeterminate" />
+        </div>
+        <div className="livegrid">
+          <SkeletonFornecedor />
+          <SkeletonFornecedor />
+          <SkeletonFornecedor />
+          <SkeletonFornecedor />
+        </div>
       </div>
     );
   }
 
-  const todosCandidatos = data.categorias.flatMap((c) => c.candidatos);
-  const prontos = todosCandidatos.filter(
-    (c) => c.status === 'concluido' || c.status === 'nao_verificado',
-  ).length;
-  const total = todosCandidatos.length;
-  const algumaConcluida = data.categorias.some((c) => c.status === 'concluida');
+  const todos = data.categorias.flatMap((c) => c.candidatos);
+  const prontos = todos.filter(pronto).length;
+  const total = todos.length;
+  const algumaFechou = data.categorias.some((c) => c.status === 'concluida');
+  const concluida = data.status === 'concluida';
 
   return (
-    <div className="container container-wide">
-      <h1>
-        {data.status === 'concluida' ? 'Pesquisa concluída' : 'Pesquisando fornecedores…'}
-      </h1>
-      <p className="lede">
-        {data.categorias.map((c) => c.categoriaLabel).join(' · ')} em <b>{data.cidade}</b>
-      </p>
-
-      <div className="stepper-top" aria-live="polite" role="status">
-        <div className="progress-track">
+    <div className="wrap wrap-wide">
+      <header className="stepbar">
+        {/* Enquanto o Descobridor não devolve nomes, o título também mostra
+            movimento — sem isso a tela parece travada. */}
+        <h1 className={total === 0 && !concluida ? 'h1 reticencias' : 'h1'}>
+          {concluida
+            ? 'Verificação concluída'
+            : total > 0
+              ? `Verificando ${total} ${total === 1 ? 'fornecedor' : 'fornecedores'}`
+              : `Procurando fornecedores em ${data.cidade}`}
+        </h1>
+        <p className="lede">
+          {data.cidade} · {data.categorias.length}{' '}
+          {data.categorias.length === 1 ? 'categoria' : 'categorias'}
+        </p>
+        <div className="stepbar-row">
           <div
-            className="progress-fill"
-            style={{ width: total > 0 ? `${(prontos / total) * 100}%` : '5%' }}
-          />
+            className="track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={total || undefined}
+            aria-valuenow={total > 0 ? prontos : undefined}
+            aria-valuetext={total === 0 ? 'procurando fornecedores' : undefined}
+          >
+            {/* Sem nenhum candidato ainda não há progresso a medir: a barra
+                varre em vez de fingir uma fração. */}
+            <span
+              className={`track-fill${total === 0 ? ' is-indeterminate' : ''}`}
+              style={{ '--fill': total > 0 ? prontos / total : 1 } as React.CSSProperties}
+            />
+          </div>
+          <span className="mono" aria-live="polite">
+            <span className="sr-only">
+              {total > 0
+                ? `${prontos} de ${total} fornecedores verificados`
+                : 'procurando fornecedores'}
+            </span>
+            <span aria-hidden="true">{total > 0 ? `${prontos}/${total}` : ''}</span>
+          </span>
         </div>
-        <span>
-          {total > 0 ? `${prontos} de ${total} verificados` : 'descobrindo candidatos…'}
-        </span>
-      </div>
+      </header>
 
       {erroRede && (
-        <p className="note note-warn" role="alert">
-          Sem resposta do servidor — tentando de novo…
-        </p>
+        <p className="note note-warn" role="alert">Sem resposta. Tentando de novo.</p>
       )}
+
       {data.status === 'erro' && (
-        <div className="note note-warn" role="alert">
-          <p style={{ margin: 0 }}>
-            A pesquisa encontrou um erro e não pôde continuar. Suas respostas não se
-            perderam.
-          </p>
-          <a className="btn" href="/" style={{ marginTop: 8 }}>
-            Tentar de novo
-          </a>
+        <div className="note note-danger" role="alert">
+          <p>A pesquisa parou.</p>
+          <a className="btn btn-secondary btn-sm" href="/">Tentar de novo</a>
         </div>
       )}
 
-      {data.status === 'rodando' && total === 0 && <SearchProgress />}
-
       {data.categorias.map((cat) => (
-        <CategoriaSecao key={cat.categoriaId} cat={cat} />
+        <SecaoCategoria key={cat.categoriaId} cat={cat} cidade={data.cidade} />
       ))}
 
-      <p className="privado">
-        Isso leva de 1 a 3 minutos. Cada verificação consulta Receita Federal, Google,
-        Reclame Aqui, notícias e redes sociais{data.mock ? ' (simuladas no modo demonstração)' : ''}.
-      </p>
+      <footer className="footer">
+        <p className="caption subtle">1 a 3 minutos.</p>
+        <Disclose rotulo="Fontes" rotuloAberto="ocultar fontes">
+          <p className="caption">
+            Receita Federal · Google · Reclame Aqui · notícias · redes sociais
+          </p>
+        </Disclose>
+      </footer>
 
-      <div className="acoes-topo">
-        {data.status === 'concluida' ? (
-          <a className="btn btn-primary btn-block" href={`/ranking/${id}`}>
-            Ver ranking →
-          </a>
+      <div className="btn-row no-print">
+        {concluida ? (
+          <a className="btn btn-primary btn-lg btn-block" href={`/ranking/${id}`}>Ver ranking →</a>
         ) : (
-          <a
-            className="btn"
-            aria-disabled={!algumaConcluida}
-            style={!algumaConcluida ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
-            href={`/ranking/${id}?parcial=1`}
-          >
-            Ver ranking parcial →
-          </a>
+          algumaFechou && (
+            <a className="btn btn-secondary" href={`/ranking/${id}?parcial=1`}>Ver ranking parcial →</a>
+          )
         )}
       </div>
     </div>
   );
 }
 
-function CategoriaSecao({ cat }: { cat: RankingCategoria }) {
-  const prontos = cat.candidatos.filter(
-    (c) => c.status === 'concluido' || c.status === 'nao_verificado',
-  ).length;
+function SecaoCategoria({ cat, cidade }: { cat: RankingCategoria; cidade: string }) {
+  const prontos = cat.candidatos.filter(pronto).length;
+
+  // Os que fecharam sobem, ordenados por nota; quem ainda roda fica embaixo na
+  // ordem de descoberta. É o ranking se montando na frente de quem olha.
+  const ordenados = [...cat.candidatos].sort((a, b) => {
+    const pa = pronto(a) ? 0 : 1;
+    const pb = pronto(b) ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    if (pa === 0) return (b.score ?? -1) - (a.score ?? -1);
+    return 0;
+  });
+
   return (
-    <section className="categoria-secao">
-      <h2>
-        {cat.categoriaLabel}{' '}
-        <span className="privado">
-          {cat.status === 'aguardando' && '· na fila'}
-          {cat.status === 'descobrindo' && '· descobrindo candidatos…'}
-          {cat.status === 'verificando' && `· ${prontos}/${cat.candidatos.length} verificados`}
-          {cat.status === 'concluida' && `· ${cat.candidatos.length} verificados ✓`}
-          {cat.status === 'erro' && '· erro nesta categoria'}
-        </span>
-      </h2>
+    <section className="chipgroup">
+      <p className="eyebrow">
+        {cat.categoriaLabel}
+        {cat.status === 'aguardando' && ' · na fila'}
+        {cat.status === 'descobrindo' && (
+          <span className="reticencias"> · procurando empresas</span>
+        )}
+        {(cat.status === 'verificando' || cat.status === 'concluida') &&
+          ` · ${prontos}/${cat.candidatos.length}`}
+      </p>
+
+      {/* Antes da primeira resposta do Descobridor, três cards fantasma mostram
+          a forma do que vem. Uma palavra solta não conta que algo está rodando. */}
       {cat.status === 'descobrindo' && cat.candidatos.length === 0 && (
-        <p className="note">
-          <Spinner /> Buscando empresas reais desta categoria na cidade…
-        </p>
+        <div className="livegrid">
+          <SkeletonFornecedor />
+          <SkeletonFornecedor />
+          <SkeletonFornecedor />
+        </div>
       )}
+
       {cat.status === 'concluida' && cat.candidatos.length === 0 && (
-        <EmptyState titulo="Nenhum fornecedor encontrado">
-          Não encontramos fornecedores desta categoria na cidade. Tente outra cidade — ou
-          rode de novo mais tarde.
-        </EmptyState>
+        <EmptyState
+          titulo={`Nenhum fornecedor de ${cat.categoriaLabel} em ${cidade}.`}
+          acao={<a className="link" href="/">Trocar cidade</a>}
+        />
       )}
-      <div className="cards-grid">
-        {cat.candidatos.map((c) => (
-          <CandidatoVivo key={c.id} c={c} />
-        ))}
-      </div>
+
+      <ListaViva candidatos={ordenados} />
     </section>
   );
 }
 
-function CandidatoVivo({ c }: { c: CandidatoResultado }) {
-  const achados = c.achados ?? [];
-  const feitos = new Set(achados.map((a) => a.criterio));
-  const pendentes = ORDEM_CRITERIOS.filter((cr) => !feitos.has(cr));
+/** FLIP: mede antes, aplica o deslocamento inverso e solta — anima transform,
+ *  nunca layout. Sob reduced-motion o CSS zera a transição e o card só troca. */
+function ListaViva({ candidatos }: { candidatos: CandidatoResultado[] }) {
+  const box = useRef<HTMLDivElement>(null);
+  const posicoes = useRef(new Map<string, number>());
+
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const cards = Array.from(el.querySelectorAll<HTMLElement>('[data-id]'));
+    for (const card of cards) {
+      const id = card.dataset.id!;
+      const topo = card.getBoundingClientRect().top;
+      const antes = posicoes.current.get(id);
+      if (antes != null && Math.abs(antes - topo) > 1) {
+        card.classList.add('is-flipping');
+        card.style.transition = 'none';
+        card.style.transform = `translateY(${antes - topo}px)`;
+        requestAnimationFrame(() => {
+          card.style.transition = '';
+          card.style.transform = '';
+          setTimeout(() => card.classList.remove('is-flipping'), 340);
+        });
+      }
+      posicoes.current.set(id, topo);
+    }
+  });
 
   return (
-    <article className="cand-card" role="status">
-      <div className="cand-head">
-        <h3>{c.nome}</h3>
+    <div className="livegrid" ref={box}>
+      {candidatos.map((c) => (
+        <CardVivo key={c.id} c={c} />
+      ))}
+    </div>
+  );
+}
+
+function CardVivo({ c }: { c: CandidatoResultado }) {
+  const achados = c.achados ?? [];
+  const porCriterio = new Map(achados.map((a) => [a.criterio, a]));
+  const ultimo = achados[achados.length - 1];
+  const fechado = pronto(c);
+  const proximo = ORDEM_CRITERIOS.find((cr) => !porCriterio.has(cr));
+
+  return (
+    <article className="livecard card" data-id={c.id} {...(fechado ? { role: 'status' } : {})}>
+      <div className="supplier-head">
+        <h2 className="h3">{c.nome}</h2>
         {c.status === 'aguardando' && <span className="badge badge-neutral">na fila</span>}
-        {c.status === 'verificando' && (
-          <span className="badge badge-accent">
-            <Spinner /> {achados.length}/{ORDEM_CRITERIOS.length}
-          </span>
-        )}
-        {c.status === 'refinando' && (
-          <span className="badge badge-accent">🔍 auditoria adversarial</span>
-        )}
-        {c.status === 'nao_verificado' && (
-          <span className="badge badge-neutral">não verificado</span>
-        )}
+        {c.status === 'refinando' && <span className="badge badge-neutral">revisando</span>}
+        {c.status === 'nao_verificado' && <span className="badge badge-neutral">não verificado</span>}
         {c.status === 'concluido' && c.tier && <TierBadge tier={c.tier} score={c.score} />}
       </div>
-      {c.fonte && <p className="fonte" style={{ margin: '2px 0 0' }}>{c.fonte}</p>}
+
       {c.doCache && (
-        <p style={{ margin: '6px 0 0' }}>
-          <span className="badge badge-accent">📋 validado há menos de 30 dias — reaproveitado</span>
+        <p className="caption">
+          <span className="badge badge-info">reaproveitado · até 30 dias</span>
+        </p>
+      )}
+
+      {/* 13 pontos na ordem real das checagens. Decorativo para leitor de tela:
+          quem não enxerga recebe o contador geral, não 13 anúncios por card. */}
+      {!fechado && (
+        <div className="dots" aria-hidden="true">
+          {ORDEM_CRITERIOS.map((cr) => {
+            const a = porCriterio.get(cr);
+            if (a) {
+              return (
+                <span key={cr} className={`dot ${CLASSE_ACHADO[a.status].replace('checks-row-', 'dot-')}`} />
+              );
+            }
+            // O próximo da fila pulsa: a fileira passa a dizer que a verificação
+            // está andando, em vez de parecer uma régua parada.
+            const emAndamento = c.status === 'verificando' && cr === proximo;
+            return <span key={cr} className={`dot ${emAndamento ? 'dot-next' : 'dot-idle'}`} />;
+          })}
+        </div>
+      )}
+
+      {!fechado && (
+        <p className="lastcheck">
+          {ultimo ? (
+            <>
+              <span aria-hidden="true">{ICONE_ACHADO[ultimo.status]}</span>
+              <span className="lastcheck-text">{ultimo.valor || CRITERIO_LABELS[ultimo.criterio]}</span>
+            </>
+          ) : (
+            <>
+              <Spinner />
+              <span className="lastcheck-text reticencias">
+                {c.status === 'aguardando' ? 'na fila' : 'abrindo o cadastro'}
+              </span>
+            </>
+          )}
         </p>
       )}
 
       {c.status === 'nao_verificado' && (
-        <p className="privado" style={{ marginTop: 8 }}>
-          {c.justificativa ?? 'Tempo esgotado na consulta — não derrubou o restante da pesquisa.'}
-        </p>
+        <p className="caption subtle">{c.justificativa ?? 'Consulta sem resposta a tempo.'}</p>
       )}
 
-      {(c.status === 'verificando' || c.status === 'refinando') && (
-        <ul className="checklist-vivo">
-          {achados.map((a) => (
-            <li key={a.criterio}>
-              <span className="ico" aria-hidden="true">
-                {ICONE_ACHADO[a.status]}
-              </span>
-              <span>
-                {CRITERIO_LABELS[a.criterio]}
-                {a.valor && <span className="valor"> — {a.valor}</span>}
-              </span>
-            </li>
-          ))}
-          {c.status === 'verificando' && pendentes.length > 0 && (
-            <li>
-              <span className="ico">
-                <Spinner />
-              </span>
-              <span>Verificando {CRITERIO_LABELS[pendentes[0]].toLowerCase()}…</span>
-            </li>
-          )}
-          {pendentes.slice(1, 4).map((cr) => (
-            <li key={cr} className="pendente">
-              <span className="ico" aria-hidden="true">
-                ○
-              </span>
-              <span>{CRITERIO_LABELS[cr]}</span>
-            </li>
-          ))}
-          {pendentes.length > 4 && (
-            <li className="pendente">
-              <span className="ico" aria-hidden="true">
-                ○
-              </span>
-              <span>+ {pendentes.length - 4} critérios na fila</span>
-            </li>
-          )}
-        </ul>
-      )}
+      {c.status === 'concluido' && c.justificativa && <p>{c.justificativa}</p>}
 
-      {c.status === 'concluido' && c.justificativa && (
-        <p className="privado" style={{ marginTop: 8 }}>{c.justificativa}</p>
+      {achados.length > 0 && (
+        <Disclose rotulo={`${achados.length} checagens`} rotuloAberto="ocultar checagens">
+          <ul className="checks">
+            {achados.map((a: Achado) => (
+              <li key={a.criterio} className={`checks-row ${CLASSE_ACHADO[a.status]}`}>
+                <span aria-hidden="true">{ICONE_ACHADO[a.status]}</span>
+                <span>
+                  {CRITERIO_LABELS[a.criterio]}
+                  {a.valor && <>: {a.valor}</>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Disclose>
       )}
     </article>
   );

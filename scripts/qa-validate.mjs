@@ -1,6 +1,9 @@
-// QA: validação profunda do JSON final do ranking (mock mode).
+// QA: validação profunda do JSON final do ranking (modo demonstração).
+// Uso: node scripts/qa-validate.mjs <idDaBusca> [porta]
 const id = process.argv[2];
-const res = await fetch(`http://localhost:3000/api/rankings/${id}`);
+const porta = process.argv[3] ?? '3000';
+const base = `http://localhost:${porta}`;
+const res = await fetch(`${base}/api/rankings/${id}`);
 const r = await res.json();
 const out = [];
 const ok = (nome, cond, ev = '') => out.push(`${cond ? 'PASS' : 'FAIL'} | ${nome}${ev ? ' | ' + ev : ''}`);
@@ -46,21 +49,70 @@ ok('cnpj_nao_localizado → ATENCAO + mensagemAcao', !!semCnpjCase && semCnpjCas
 ok('naoVerificavel[] presente em concluídos', cands.filter((c)=>c.status==='concluido').every((c) => Array.isArray(c.naoVerificavel)));
 ok('justificativa presente e curta', cands.filter((c)=>c.status==='concluido').every((c) => c.justificativa && c.justificativa.length < 400));
 
-// LGPD: nomes de pessoa física — heurística: procurar padrões "sócio", "Sr.", "Sra.", CPF
+// LGPD: nada de pessoa física. Os padrões são ancorados em limite de palavra
+// porque a versão solta dava dois falsos positivos legítimos: "cpfCnpj=" é o
+// nome do parâmetro do Portal da Transparência, e "Clubes sociais" é descrição
+// oficial de CNAE — nenhum dos dois é dado pessoal.
 const json = JSON.stringify(r);
-ok('LGPD: sem menção a sócio/CPF/nome de pessoa', !/s[oó]ci[oa]|CPF|\bSr\.|\bSra\./i.test(json));
+const vazamentos = [
+  [/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/, 'CPF formatado'],
+  [/\*{3}\d{6}\*{2}/, 'CPF mascarado (formato da BrasilAPI)'],
+  [/\bs[oó]ci[oa]s?\b/i, 'menção a sócio'],
+  [/\bquadro societ[aá]rio\b/i, 'quadro societário'],
+  [/\bnome_socio\b|\bqsa\b/i, 'campo de QSA da BrasilAPI'],
+  [/\bSrs?\.|\bSra\./, 'tratamento de pessoa'],
+].filter(([re]) => re.test(json)).map(([, nome]) => nome);
+ok('LGPD: nenhum dado de pessoa física no payload', vazamentos.length === 0, vazamentos.join(', '));
 
-// Nomes fictícios: conferir contra o seed
+// ---- RN-18: a regra que separa empresa real de exemplo fictício ----
 const fs = await import('node:fs');
-const seed = JSON.parse(fs.readFileSync('seed/fornecedores.json', 'utf8'));
-const seedNomes = new Set(Object.values(seed).flat().map((f) => (typeof f === 'string' ? f : f.nome)));
-const foraDoSeed = cands.filter((c) => !seedNomes.has(c.nome));
-ok('nomes vêm do seed fictício (ou gerador)', foraDoSeed.length === 0 || foraDoSeed.length < cands.length, `fora do seed: ${foraDoSeed.length}`);
+const seed = JSON.parse(fs.readFileSync('seed/fortaleza.json', 'utf8'));
+const reais = new Map();   // nome -> registro real
+const ficticios = new Set();
+for (const cat of Object.values(seed.categorias)) {
+  for (const f of cat.reais ?? []) reais.set(f.nome, f);
+  for (const f of cat.ficticios ?? []) ficticios.add(f.nome);
+}
+
+// 1. Nenhuma empresa REAL pode receber EVITAR nem falhar a verificação.
+const reaisPunidos = cands.filter(
+  (c) => reais.has(c.nome) && (c.tier === 'EVITAR' || c.status === 'nao_verificado'),
+);
+ok('RN-18: nenhuma empresa real em EVITAR ou não verificada', reaisPunidos.length === 0, reaisPunidos.map((c)=>c.nome).join(','));
+
+// 2. Todo EVITAR e toda falha vêm de exemplo fictício declarado no seed.
+const negativos = cands.filter((c) => c.tier === 'EVITAR' || c.status === 'nao_verificado');
+const negativosNaoDeclarados = negativos.filter((c) => !ficticios.has(c.nome));
+ok('RN-18: todo desfecho negativo é fictício declarado', negativosNaoDeclarados.length === 0, negativosNaoDeclarados.map((c)=>c.nome).join(','));
+
+// 3. CNPJ fictício sempre na faixa 99.9xx; CNPJ de empresa real sempre fora dela.
+let cnpjErrado = [];
+for (const c of cands) {
+  const a = (c.achados ?? []).find((x) => x.criterio === 'cnpj_ativo' && x.status !== 'nao_verificavel');
+  const m = a?.valor?.match(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
+  if (!m) continue;
+  const faixaDemo = m[1].startsWith('99.9');
+  if (ficticios.has(c.nome) && !faixaDemo) cnpjErrado.push(`${c.nome}: fictício fora da faixa 99.9`);
+  if (reais.has(c.nome) && faixaDemo) cnpjErrado.push(`${c.nome}: real na faixa fictícia`);
+  if (reais.has(c.nome) && reais.get(c.nome).cnpj !== m[1]) cnpjErrado.push(`${c.nome}: CNPJ diverge do seed`);
+}
+ok('CNPJ fictício na faixa 99.9xx e real igual ao seed', cnpjErrado.length === 0, cnpjErrado.slice(0,4).join(' ; '));
+
+// 4. Empresa real precisa exibir evidência clicável de CNPJ e de reputação.
+const reaisSemFonte = cands.filter((c) => {
+  if (!reais.has(c.nome)) return false;
+  const porCrit = new Map((c.achados ?? []).map((a) => [a.criterio, a]));
+  const cnpj = porCrit.get('cnpj_ativo');
+  return !cnpj?.evidenciaUrl;
+});
+ok('empresa real tem fonte de CNPJ clicável', reaisSemFonte.length === 0, reaisSemFonte.map((c)=>c.nome).join(','));
 
 // Determinismo: 2 GETs idênticos
-const a = await (await fetch(`http://localhost:3000/api/rankings/${id}`)).text();
-const b = await (await fetch(`http://localhost:3000/api/rankings/${id}`)).text();
+const a = await (await fetch(`${base}/api/rankings/${id}`)).text();
+const b = await (await fetch(`${base}/api/rankings/${id}`)).text();
 ok('determinismo: 2 GETs idênticos pós-conclusão', a === b);
 
 console.log(out.join('\n'));
-console.log(`\nRESUMO: ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL`);
+const nFail = out.filter((l) => l.startsWith('FAIL')).length;
+console.log(`\nRESUMO: ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${nFail} FAIL`);
+process.exitCode = nFail > 0 ? 1 : 0;

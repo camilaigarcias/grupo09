@@ -4,7 +4,7 @@ export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? 'CRIVO';
 export const APP_TAGLINE =
   'Verificação de fornecedor de evento, com fonte em cada checagem.';
 
-export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY ?? 'Curitiba';
+export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY ?? 'Fortaleza';
 
 export const PRECO_BUSCA = process.env.NEXT_PUBLIC_PRECO_BUSCA ?? 'R$ 20,00';
 

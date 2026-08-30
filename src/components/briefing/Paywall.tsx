@@ -1,90 +1,84 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { PRECO_BUSCA } from '@/lib/config';
-
-type Fase = 'oferta' | 'processando' | 'aprovado';
+import { useEffect, useRef } from 'react';
+import { LIMITS, PRECO_BUSCA } from '@/lib/config';
 
 const BENEFICIOS = [
-  '10+ fornecedores pesquisados em fontes públicas',
-  'Evidências clicáveis em cada critério',
-  'Relatório em PDF para a política de compras',
-  'Resultado reaproveitável por 30 dias',
+  `Até ${LIMITS.candidatosPorCategoria} fornecedores por categoria`,
+  'Fonte clicável em cada checagem',
+  'PDF para anexar no processo de compra',
+  `Reaproveitável por ${LIMITS.cacheDias} dias`,
 ];
 
-interface PaywallProps {
-  cidade: string;
-  categoriasLabels: string[];
+/**
+ * Desbloqueio da verificação. Não troca de rota: a lista continua atrás, então
+ * some o resumo "o que vamos pesquisar" (era a mesma informação duas vezes).
+ * Não existe checkout nesta versão — o toque libera a pesquisa.
+ */
+export default function Paywall({
+  enviando,
+  onPagar,
+  onFechar,
+}: {
+  enviando: boolean;
   onPagar: () => void;
-  onVoltar: () => void;
-}
-
-// Paywall de demonstração: NÃO existe checkout nesta versão — o clique em
-// "Ir para pagamento" simula a aprovação e então libera a pesquisa (onPagar).
-export default function Paywall({ cidade, categoriasLabels, onPagar, onVoltar }: PaywallProps) {
-  const [fase, setFase] = useState<Fase>('oferta');
-  const timers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  onFechar: () => void;
+}) {
+  const cta = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const pendentes = timers.current;
-    return () => pendentes.forEach(clearTimeout);
+    cta.current?.focus();
   }, []);
 
-  function pagar() {
-    if (fase !== 'oferta') return;
-    setFase('processando');
-    timers.current.push(
-      setTimeout(() => {
-        setFase('aprovado');
-        timers.current.push(setTimeout(onPagar, 800));
-      }, 1200),
-    );
-  }
+  useEffect(() => {
+    const aoTeclar = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && !enviando) onFechar();
+    };
+    document.addEventListener('keydown', aoTeclar);
+    return () => document.removeEventListener('keydown', aoTeclar);
+  }, [enviando, onFechar]);
 
   return (
-    <div className="paywall-wrap">
-      <section className="paywall-card" aria-busy={fase === 'processando'}>
-        <p className="paywall-eyebrow">Pesquisa completa</p>
-        <h1 className="paywall-titulo">Desbloqueie a busca</h1>
-        <p className="paywall-preco">
-          <span className="paywall-valor">{PRECO_BUSCA}</span>
-          <span className="paywall-preco-sub">pagamento único por pesquisa</span>
-        </p>
+    <div className="backdrop" onClick={() => !enviando && onFechar()}>
+      <section
+        className="sheet glass"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pagamento"
+        aria-busy={enviando}
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <span className="sheet-handle" aria-hidden="true" />
 
-        <ul className="paywall-beneficios">
+        <p className="eyebrow">Verificação completa</p>
+        <p className="display">{PRECO_BUSCA}</p>
+        <p className="caption subtle">por pesquisa</p>
+
+        <ul className="checks">
           {BENEFICIOS.map((b) => (
-            <li key={b}>
-              <span className="ico" aria-hidden="true">✓</span> {b}
+            <li key={b} className="checks-row checks-row-ok">
+              <span aria-hidden="true">✓</span>
+              <span>{b}</span>
             </li>
           ))}
         </ul>
 
-        <p className="paywall-resumo">
-          <strong>O que vamos pesquisar:</strong> {categoriasLabels.join(', ')}
-          {cidade ? ` · ${cidade}` : ''}
-        </p>
-
         <button
-          className="btn btn-primary btn-block paywall-cta"
-          onClick={pagar}
-          disabled={fase !== 'oferta'}
-          aria-live="polite"
+          ref={cta}
+          type="button"
+          className="btn btn-gradient btn-lg btn-block"
+          onClick={onPagar}
+          disabled={enviando}
         >
-          {fase === 'oferta' && 'Ir para pagamento →'}
-          {fase === 'processando' && (
+          {enviando ? (
             <>
-              <span className="spinner" aria-hidden="true" /> Processando pagamento…
+              <span className="spinner" aria-hidden="true" /> Processando
             </>
+          ) : (
+            `Pagar ${PRECO_BUSCA}`
           )}
-          {fase === 'aprovado' && '✓ Pagamento aprovado (simulado nesta versão)'}
-        </button>
-        <button className="btn-link paywall-voltar" onClick={onVoltar} disabled={fase !== 'oferta'}>
-          ‹ Voltar e revisar
         </button>
 
-        <p className="paywall-nota">
-          Pagamento ilustrativo — o checkout real entra na próxima versão.
-        </p>
       </section>
     </div>
   );

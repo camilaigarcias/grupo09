@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { RankingResponse } from '@/lib/types';
 
 // Polling do GET /api/rankings/:id a cada 2s (P1 do dossiê — mais simples que SSE).
-export function useRanking(id: string, intervalMs = 2000) {
+export function useRanking(id: string, intervalMs = 700) {
   const [data, setData] = useState<RankingResponse | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [erroRede, setErroRede] = useState(false);
