@@ -17,6 +17,11 @@ export const FAMILIAS: Record<Categoria['familia'], string> = {
   F: 'Pessoas & logística',
 };
 
+// Teto de categorias por pesquisa: a pipeline roda cada categoria em série
+// (descobridor + verificadores), então custo e tempo crescem linearmente.
+// A rota e a UI compartilham esta constante para nunca divergirem.
+export const MAX_CATEGORIAS_POR_PESQUISA = 6;
+
 export const CATEGORIAS: Categoria[] = [
   // A · Espaço & infraestrutura
   { id: 'espaco', label: 'Espaço / local de eventos', familia: 'A' },

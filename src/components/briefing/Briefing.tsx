@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   CATEGORIAS,
   FAMILIAS,
+  MAX_CATEGORIAS_POR_PESQUISA,
   TIPOS_EVENTO,
   categoriaLabel,
   mapearCategorias,
@@ -14,6 +15,20 @@ import {
 import { DEFAULT_CITY } from '@/lib/config';
 import type { CriarRankingBody, CriarRankingResponse } from '@/lib/types';
 import Paywall from './Paywall';
+
+const FALHA_GENERICA =
+  'Não conseguimos iniciar a pesquisa. Verifique a conexão e tente de novo.';
+
+// A rota devolve o motivo em `erro` (ex.: teto de categorias). Sem ler isso,
+// toda falha de regra virava "erro de conexão" e o usuário não sabia o que fazer.
+async function lerErroDaApi(res: Response): Promise<string | null> {
+  try {
+    const j = (await res.json()) as { erro?: unknown };
+    return typeof j.erro === 'string' && j.erro.trim() ? j.erro : null;
+  } catch {
+    return null;
+  }
+}
 
 type Modo = 'intro' | 'checklist' | 'atalho' | 'revisao';
 
@@ -113,6 +128,9 @@ export default function Briefing() {
     [mapeamento, desligadas],
   );
 
+  // Quantas categorias passam do teto aceito pela rota (0 = pode pesquisar).
+  const excedente = selecionadas.length - MAX_CATEGORIAS_POR_PESQUISA;
+
   function toggle<T extends string>(lista: T[], item: T): T[] {
     return lista.includes(item) ? lista.filter((x) => x !== item) : [...lista, item];
   }
@@ -145,11 +163,16 @@ export default function Briefing() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        setErro((await lerErroDaApi(res)) ?? FALHA_GENERICA);
+        setEnviando(false);
+        setPaywallPendente(null);
+        return;
+      }
       const json = (await res.json()) as CriarRankingResponse;
       router.push(`/pesquisa/${json.id}`);
     } catch {
-      setErro('Não conseguimos iniciar a pesquisa. Verifique a conexão e tente de novo.');
+      setErro(FALHA_GENERICA);
       setEnviando(false);
       // Falhou depois do "pagamento": volta para a tela anterior com o aviso.
       setPaywallPendente(null);
@@ -158,6 +181,12 @@ export default function Briefing() {
 
   function abrirPaywallDoChecklist() {
     if (!mapeamento) return;
+    if (excedente > 0) {
+      setErro(
+        `Tire ${excedente} categoria${excedente === 1 ? '' : 's'} para seguir — cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA}.`,
+      );
+      return;
+    }
     const avisos = [...mapeamento.avisos];
     if (e.veg && !e.semComida && e.comida.length > 0) {
       avisos.push(
@@ -319,6 +348,11 @@ export default function Briefing() {
         <p className="privado" style={{ marginTop: 16 }}>
           Toque numa categoria para tirar ou devolver à pesquisa.
         </p>
+        {excedente > 0 && (
+          <p className="note note-warn" role="alert">
+            {`Cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA} categorias — você marcou ${selecionadas.length}. Tire ${excedente} para seguir.`}
+          </p>
+        )}
         <CampoCidade cidade={cidade} setCidade={setCidade} />
         {erro && <p className="note note-warn" role="alert">{erro}</p>}
         <div className="step-footer">
@@ -327,10 +361,10 @@ export default function Briefing() {
           </button>
           <button
             className="btn btn-primary"
-            disabled={enviando || selecionadas.length === 0 || !cidade.trim()}
+            disabled={enviando || selecionadas.length === 0 || excedente > 0 || !cidade.trim()}
             onClick={abrirPaywallDoChecklist}
           >
-            {`🔎 Pesquisar fornecedores (${selecionadas.length} ${selecionadas.length === 1 ? 'categoria' : 'categorias'} · ${cidade.trim() || '—'})`}
+            {`🔎 Pesquisar fornecedores (${selecionadas.length}/${MAX_CATEGORIAS_POR_PESQUISA} categorias · ${cidade.trim() || '—'})`}
           </button>
         </div>
       </div>

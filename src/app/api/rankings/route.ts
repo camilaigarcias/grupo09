@@ -1,7 +1,7 @@
 // POST /api/rankings — cria a busca e agenda a pipeline (after() mantém o
 // trabalho vivo depois da resposta, local e na Vercel).
 import { NextResponse, after } from 'next/server';
-import { CATEGORIA_BY_ID } from '@/lib/categorias';
+import { CATEGORIA_BY_ID, MAX_CATEGORIAS_POR_PESQUISA } from '@/lib/categorias';
 import { providerParaCriar } from '@/lib/pipeline/provider';
 import type { CriarRankingBody } from '@/lib/types';
 
@@ -24,9 +24,9 @@ export async function POST(req: Request) {
   const categorias = Array.isArray(body.categorias)
     ? body.categorias.filter((c): c is string => typeof c === 'string')
     : [];
-  if (categorias.length < 1 || categorias.length > 6) {
+  if (categorias.length < 1 || categorias.length > MAX_CATEGORIAS_POR_PESQUISA) {
     return NextResponse.json(
-      { erro: 'Selecione de 1 a 6 categorias de fornecedor por pesquisa.' },
+      { erro: `Selecione de 1 a ${MAX_CATEGORIAS_POR_PESQUISA} categorias de fornecedor por pesquisa.` },
       { status: 400 },
     );
   }
