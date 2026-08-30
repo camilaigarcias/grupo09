@@ -98,10 +98,12 @@ export function scoreFornecedor(
 
   let mensagemAcao: string | undefined;
 
-  // CNPJ não localizado não é eliminatória — mas impede o selo Verificado.
+  // CNPJ não localizado não é eliminatória — impede o selo Verificado, mas
+  // AUSÊNCIA de dado também nunca rebaixa a Evitar (regra de justiça do dossiê):
+  // sem CNPJ o pilar cadastral zera e o score cai por ausência, não por demérito.
   if (d.cnpj == null) {
     if (!flags.includes('cnpj_nao_localizado')) flags.push('cnpj_nao_localizado');
-    if (tier === 'VERIFICADO') tier = 'ATENCAO';
+    if (tier === 'VERIFICADO' || tier === 'EVITAR') tier = 'ATENCAO';
     mensagemAcao =
       'Não conseguimos confirmar o CNPJ desta empresa. Peça o CNPJ e a nota fiscal antes de pagar qualquer sinal.';
   }
