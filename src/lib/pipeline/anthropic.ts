@@ -5,9 +5,18 @@ import Anthropic from '@anthropic-ai/sdk';
 
 let cliente: Anthropic | null = null;
 
+// Chave "identity-linked" (a que vem de conta com workspaces) exige o header
+// anthropic-workspace-id em TODA requisicao, senao a API devolve 400. Chave de
+// organizacao comum nao precisa: com ANTHROPIC_WORKSPACE_ID vazio o header nao
+// e enviado e o comportamento fica identico ao de antes.
 export function getAnthropic(): Anthropic {
   if (!cliente) {
-    cliente = new Anthropic({ timeout: 55_000, maxRetries: 1 });
+    const workspace = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+    cliente = new Anthropic({
+      timeout: 55_000,
+      maxRetries: 1,
+      ...(workspace ? { defaultHeaders: { 'anthropic-workspace-id': workspace } } : {}),
+    });
   }
   return cliente;
 }
