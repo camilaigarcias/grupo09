@@ -6,6 +6,8 @@ export const APP_TAGLINE =
 
 export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY ?? 'Curitiba';
 
+export const PRECO_BUSCA = process.env.NEXT_PUBLIC_PRECO_BUSCA ?? 'R$ 20,00';
+
 // Modo demo: sem chave da Anthropic (ou forçado via MOCK_MODE) a pipeline
 // roda com dados simulados de fornecedores FICTÍCIOS — mesmo fluxo, sem rede.
 export function isMockMode(): boolean {

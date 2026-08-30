@@ -447,3 +447,94 @@ h3 { font-size: 16px; margin: 0; }
   a.evidencia::after { content: " (" attr(href) ")"; font-size: 11px; color: #444; }
   body { font-size: 13px; }
 }
+
+/* ---------- paywall (desbloqueio da busca) ---------- */
+.paywall-wrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4) 0 var(--space-3);
+}
+.paywall-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-3);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+.paywall-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 var(--space-1);
+}
+.paywall-titulo {
+  font-size: 24px;
+  line-height: 1.2;
+  margin: 0 0 var(--space-2);
+}
+.paywall-preco { margin: 0 0 var(--space-3); }
+.paywall-valor {
+  display: block;
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.paywall-preco-sub {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.paywall-beneficios {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 14px;
+}
+.paywall-beneficios li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 4px 0;
+}
+.paywall-beneficios .ico {
+  flex-shrink: 0;
+  width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+  color: var(--ok);
+}
+.paywall-resumo {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: 14px;
+  text-align: left;
+  margin: 0 0 var(--space-3);
+  overflow-wrap: break-word;
+}
+.paywall-cta {
+  font-size: 17px;
+  min-height: 52px;
+}
+.paywall-voltar {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-1);
+}
+.paywall-voltar:disabled { opacity: 0.5; cursor: not-allowed; }
+.paywall-nota {
+  font-size: 12px;
+  color: var(--muted);
+  margin: var(--space-3) 0 0;
+}

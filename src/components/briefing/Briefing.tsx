@@ -13,6 +13,7 @@ import {
 } from '@/lib/categorias';
 import { DEFAULT_CITY } from '@/lib/config';
 import type { CriarRankingBody, CriarRankingResponse } from '@/lib/types';
+import Paywall from './Paywall';
 
 type Modo = 'intro' | 'checklist' | 'atalho' | 'revisao';
 
@@ -71,6 +72,12 @@ export default function Briefing() {
   const [catDireta, setCatDireta] = useState('buffet');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Etapa paywall: pesquisa "travada" aguardando o desbloqueio (pagamento
+  // simulado). O POST /api/rankings só acontece depois do onPagar.
+  const [paywallPendente, setPaywallPendente] = useState<{
+    categorias: string[];
+    avisos: string[];
+  } | null>(null);
 
   const respostas: ChecklistRespostas | null = useMemo(() => {
     if (!e.tipo || !e.pessoas || !e.local || !e.formato) return null;
@@ -122,7 +129,13 @@ export default function Briefing() {
   }
 
   async function pesquisar(categorias: string[], avisos: string[]) {
-    if (categorias.length === 0 || !cidade.trim()) return;
+    if (categorias.length === 0 || !cidade.trim()) {
+      // Nunca deve acontecer (CTAs validam antes do paywall) — mas se um
+      // refactor quebrar isso, sinaliza em vez de travar o paywall em silêncio.
+      setErro('Escolha ao menos uma categoria e informe a cidade antes de pesquisar.');
+      setPaywallPendente(null);
+      return;
+    }
     setEnviando(true);
     setErro(null);
     try {
@@ -138,10 +151,12 @@ export default function Briefing() {
     } catch {
       setErro('Não conseguimos iniciar a pesquisa. Verifique a conexão e tente de novo.');
       setEnviando(false);
+      // Falhou depois do "pagamento": volta para a tela anterior com o aviso.
+      setPaywallPendente(null);
     }
   }
 
-  function pesquisarDoChecklist() {
+  function abrirPaywallDoChecklist() {
     if (!mapeamento) return;
     const avisos = [...mapeamento.avisos];
     if (e.veg && !e.semComida && e.comida.length > 0) {
@@ -149,10 +164,25 @@ export default function Briefing() {
         'Briefing alimentar: incluir opção vegetariana/vegana ao cotar — praticamente obrigatório em evento corporativo.',
       );
     }
-    void pesquisar(selecionadas, avisos);
+    setErro(null);
+    setPaywallPendente({ categorias: selecionadas, avisos });
   }
 
   /* ---------- telas ---------- */
+
+  if (paywallPendente) {
+    const pendente = paywallPendente;
+    return (
+      <div className="container">
+        <Paywall
+          cidade={cidade.trim()}
+          categoriasLabels={pendente.categorias.map((c) => categoriaLabel(c))}
+          onPagar={() => void pesquisar(pendente.categorias, pendente.avisos)}
+          onVoltar={() => setPaywallPendente(null)}
+        />
+      </div>
+    );
+  }
 
   if (modo === 'intro') {
     return (
@@ -216,9 +246,12 @@ export default function Briefing() {
           <button
             className="btn btn-primary"
             disabled={enviando || !cidade.trim()}
-            onClick={() => void pesquisar([catDireta], [])}
+            onClick={() => {
+              setErro(null);
+              setPaywallPendente({ categorias: [catDireta], avisos: [] });
+            }}
           >
-            {enviando ? 'Iniciando…' : '🔎 Pesquisar fornecedores'}
+            🔎 Pesquisar fornecedores
           </button>
         </div>
       </div>
@@ -295,11 +328,9 @@ export default function Briefing() {
           <button
             className="btn btn-primary"
             disabled={enviando || selecionadas.length === 0 || !cidade.trim()}
-            onClick={pesquisarDoChecklist}
+            onClick={abrirPaywallDoChecklist}
           >
-            {enviando
-              ? 'Iniciando…'
-              : `🔎 Pesquisar fornecedores (${selecionadas.length} ${selecionadas.length === 1 ? 'categoria' : 'categorias'} · ${cidade.trim() || '—'})`}
+            {`🔎 Pesquisar fornecedores (${selecionadas.length} ${selecionadas.length === 1 ? 'categoria' : 'categorias'} · ${cidade.trim() || '—'})`}
           </button>
         </div>
       </div>
