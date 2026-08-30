@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { APP_NAME } from '@/lib/config';
 import {
@@ -10,7 +10,7 @@ import {
   type CriterioId,
   type RankingCategoria,
 } from '@/lib/types';
-import { Spinner, TierBadge } from '@/components/ui';
+import { EmptyState, Spinner, TIER_INFO, TierBadge, Toast } from '@/components/ui';
 import { useRanking } from '@/components/useRanking';
 
 const GRUPOS: Array<{ titulo: string; criterios: CriterioId[] }> = [
@@ -45,6 +45,8 @@ const FLAG_LABELS: Record<string, string> = {
 export default function RankingView({ id, parcial }: { id: string; parcial: boolean }) {
   const router = useRouter();
   const { data, notFound } = useRanking(id);
+  const [toast, setToast] = useState<string | null>(null);
+  const fecharToast = useCallback(() => setToast(null), []);
 
   useEffect(() => {
     if (data?.status === 'rodando' && !parcial) {
@@ -65,11 +67,17 @@ export default function RankingView({ id, parcial }: { id: string; parcial: bool
   }
 
   if (!data) {
+    // Skeleton do SupplierCard (DS §4.25) enquanto o primeiro GET não responde.
     return (
-      <div className="container">
+      <div className="container container-wide">
         <h1>
           <Spinner /> Carregando ranking…
         </h1>
+        <div aria-hidden="true">
+          <SupplierCardSkeleton />
+          <SupplierCardSkeleton />
+          <SupplierCardSkeleton />
+        </div>
       </div>
     );
   }
@@ -86,8 +94,15 @@ export default function RankingView({ id, parcial }: { id: string; parcial: bool
       <p className="privado">🔒 Relatório privado — só você vê.</p>
 
       <div className="acoes-topo no-print">
-        <button className="btn btn-primary" onClick={() => window.print()}>
-          🖨 Baixar PDF
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            window.print();
+            // window.print() retorna quando o diálogo fecha — confirma via Toast (§4.22).
+            setToast('PDF gerado com sucesso.');
+          }}
+        >
+          📄 Baixar PDF
         </button>
         <a className="btn" href="/">
           Nova pesquisa
@@ -115,18 +130,20 @@ export default function RankingView({ id, parcial }: { id: string; parcial: bool
       ))}
 
       {data.categorias.map((cat) => (
-        <CategoriaRanking key={cat.categoriaId} cat={cat} />
+        <CategoriaRanking key={cat.categoriaId} cat={cat} cidade={data.cidade} />
       ))}
 
       <p className="privado" style={{ marginTop: 24 }}>
         {APP_NAME} · relatório privado — uso interno · gerado em {dataFmt}
         {data.mock && ' · modo demonstração: fornecedores fictícios e dados simulados'}
       </p>
+
+      {toast && <Toast mensagem={toast} onFechar={fecharToast} />}
     </div>
   );
 }
 
-function CategoriaRanking({ cat }: { cat: RankingCategoria }) {
+function CategoriaRanking({ cat, cidade }: { cat: RankingCategoria; cidade: string }) {
   const concluidos = cat.candidatos.filter((c) => c.status === 'concluido');
   const rankeados = concluidos
     .filter((c) => c.tier !== 'EVITAR')
@@ -136,6 +153,8 @@ function CategoriaRanking({ cat }: { cat: RankingCategoria }) {
   const pendentes = cat.candidatos.filter(
     (c) => c.status !== 'concluido' && c.status !== 'nao_verificado',
   );
+  // Âncora do card completo do 1º colocado — destino do CTA do FeaturedCard.
+  const ancoraTop = `melhor-${cat.categoriaId}`;
 
   return (
     <section className="categoria-secao">
@@ -144,9 +163,9 @@ function CategoriaRanking({ cat }: { cat: RankingCategoria }) {
       </h2>
 
       {cat.candidatos.length === 0 && cat.status === 'concluida' && (
-        <p className="note note-warn">
+        <EmptyState titulo="Nenhum fornecedor verificável encontrado">
           Não encontramos fornecedores desta categoria na cidade pesquisada.
-        </p>
+        </EmptyState>
       )}
       {pendentes.length > 0 && (
         <p className="note">
@@ -156,8 +175,17 @@ function CategoriaRanking({ cat }: { cat: RankingCategoria }) {
         </p>
       )}
 
+      {rankeados.length > 0 && (
+        <FeaturedCard
+          c={rankeados[0]}
+          categoria={cat.categoriaLabel}
+          cidade={cidade}
+          ancora={ancoraTop}
+        />
+      )}
+
       {rankeados.map((c, i) => (
-        <CandidatoRank key={c.id} c={c} pos={i + 1} />
+        <CandidatoRank key={c.id} c={c} pos={i + 1} htmlId={i === 0 ? ancoraTop : undefined} />
       ))}
 
       {evitar.length > 0 && (
@@ -187,13 +215,80 @@ function CategoriaRanking({ cat }: { cat: RankingCategoria }) {
   );
 }
 
-function CandidatoRank({ c, pos }: { c: CandidatoResultado; pos?: number }) {
+// FeaturedCard (DS §4.31): melhor colocado da categoria sobre --grad-card.
+// Máximo 1 por lista (§2.11); o degradê destaca, o status segue nos chips com
+// ícone+palavra (nunca só cor). Fora do print: o PDF fica com a lista sóbria
+// e o 1º colocado já aparece completo logo abaixo.
+function FeaturedCard({
+  c,
+  categoria,
+  cidade,
+  ancora,
+}: {
+  c: CandidatoResultado;
+  categoria: string;
+  cidade: string;
+  ancora: string;
+}) {
+  const t = c.tier ? TIER_INFO[c.tier] : null;
+  return (
+    <article className="featured-card no-print">
+      <div className="featured-chips">
+        <span className="chip-ongrad chip-ongrad-escura">Melhor da categoria</span>
+        {t && (
+          <span className="chip-ongrad chip-ongrad-clara">
+            <span aria-hidden="true">{t.icone}</span> {t.palavra}
+          </span>
+        )}
+      </div>
+      <div className="featured-main">
+        <h3 className="featured-nome">{c.nome}</h3>
+        {typeof c.score === 'number' && (
+          <span className="featured-score">{c.score}/100</span>
+        )}
+      </div>
+      <p className="featured-meta">
+        {categoria} · {cidade}
+      </p>
+      <a className="btn btn-ongrad btn-block" href={`#${ancora}`}>
+        Ver verificação completa ↓
+      </a>
+    </article>
+  );
+}
+
+// Skeleton do SupplierCard (DS §4.25): header + 2 linhas + 4 barras.
+function SupplierCardSkeleton() {
+  return (
+    <div className="cand-card rank-card" aria-hidden="true">
+      <div className="skeleton" style={{ height: 20, width: '55%' }} />
+      <div className="skeleton" style={{ height: 14, width: '75%', marginTop: 10 }} />
+      <div className="skeleton" style={{ height: 14, width: '65%', marginTop: 6 }} />
+      <div className="pilares">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="skeleton" style={{ height: 8, marginBottom: 10 }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CandidatoRank({
+  c,
+  pos,
+  htmlId,
+}: {
+  c: CandidatoResultado;
+  pos?: number;
+  htmlId?: string;
+}) {
   const [aberto, setAberto] = useState(false);
   const achados = c.achados ?? [];
   const porCriterio = new Map(achados.map((a) => [a.criterio, a]));
+  const idVerificacao = `verificacao-${c.id}`;
 
   return (
-    <article className="cand-card rank-card">
+    <article className="cand-card rank-card" id={htmlId}>
       <div className="cand-head">
         <h3>
           {pos != null && <span className="rank-pos">{pos}º · </span>}
@@ -209,7 +304,7 @@ function CandidatoRank({ c, pos }: { c: CandidatoResultado; pos?: number }) {
       )}
       {c.doCache && (
         <p style={{ margin: '6px 0 0' }}>
-          <span className="badge badge-accent">🔁 validado há menos de 30 dias — reaproveitado</span>
+          <span className="badge badge-accent">📋 validado há menos de 30 dias — reaproveitado</span>
         </p>
       )}
       {c.refinado && (
@@ -263,46 +358,56 @@ function CandidatoRank({ c, pos }: { c: CandidatoResultado; pos?: number }) {
           <button
             className="acc-toggle no-print"
             aria-expanded={aberto}
+            aria-controls={idVerificacao}
             onClick={() => setAberto(!aberto)}
           >
-            {aberto ? '▾ ocultar verificação completa' : '▸ ver verificação completa'}
+            <span className="acc-chevron" aria-hidden="true">
+              ▸
+            </span>
+            {aberto ? 'ocultar verificação completa' : 'ver verificação completa'}
           </button>
-          <div className={`acc-body${aberto ? '' : ' closed'}`}>
-            {GRUPOS.map((g) => {
-              const doGrupo = g.criterios
-                .map((cr) => porCriterio.get(cr))
-                .filter((a): a is Achado => a != null && a.status !== 'nao_verificavel');
-              if (doGrupo.length === 0) return null;
-              return (
-                <div key={g.titulo}>
-                  <p className="achados-grupo">{g.titulo}</p>
-                  {doGrupo.map((a) => (
-                    <p key={a.criterio} className="achado-row">
-                      <span className="ico" aria-hidden="true">
-                        {ICONE_ACHADO[a.status]}
-                      </span>
-                      <span>
-                        {CRITERIO_LABELS[a.criterio]}: {a.valor}
-                        {a.evidenciaUrl && (
-                          <>
-                            {' '}
-                            <a
-                              className="evidencia"
-                              href={a.evidenciaUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              fonte ↗
-                            </a>
-                          </>
-                        )}
-                        {a.inferencia && <em className="privado"> (inferência)</em>}
-                      </span>
-                    </p>
-                  ))}
-                </div>
-              );
-            })}
+          {/* §4.15: colapso anima grid-template-rows 0fr→1fr (wrapper .acc-inner
+              faz o clip; .acc-content carrega o separador) */}
+          <div id={idVerificacao} className={`acc-body${aberto ? '' : ' closed'}`}>
+            <div className="acc-inner">
+              <div className="acc-content">
+                {GRUPOS.map((g) => {
+                  const doGrupo = g.criterios
+                    .map((cr) => porCriterio.get(cr))
+                    .filter((a): a is Achado => a != null && a.status !== 'nao_verificavel');
+                  if (doGrupo.length === 0) return null;
+                  return (
+                    <div key={g.titulo}>
+                      <p className="achados-grupo">{g.titulo}</p>
+                      {doGrupo.map((a) => (
+                        <p key={a.criterio} className="achado-row">
+                          <span className="ico" aria-hidden="true">
+                            {ICONE_ACHADO[a.status]}
+                          </span>
+                          <span>
+                            {CRITERIO_LABELS[a.criterio]}: {a.valor}
+                            {a.evidenciaUrl && (
+                              <>
+                                {' '}
+                                <a
+                                  className="evidencia"
+                                  href={a.evidenciaUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  fonte ↗
+                                </a>
+                              </>
+                            )}
+                            {a.inferencia && <em className="privado"> (inferência)</em>}
+                          </span>
+                        </p>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </>
       )}

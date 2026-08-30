@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import {
   CATEGORIAS,
   FAMILIAS,
-  MAX_CATEGORIAS_POR_PESQUISA,
   TIPOS_EVENTO,
   categoriaLabel,
   mapearCategorias,
+  MAX_CATEGORIAS_POR_PESQUISA,
   type ChecklistRespostas,
   type TipoEvento,
 } from '@/lib/categorias';
@@ -223,7 +223,7 @@ export default function Briefing() {
           para anexar à sua política de compras.
         </p>
         <button
-          className="btn btn-primary btn-block"
+          className="btn btn-gradient btn-block"
           onClick={() => {
             setModo('checklist');
             setPasso(1);
@@ -348,17 +348,17 @@ export default function Briefing() {
         <p className="privado" style={{ marginTop: 16 }}>
           Toque numa categoria para tirar ou devolver à pesquisa.
         </p>
-        {excedente > 0 && (
-          <p className="note note-warn" role="alert">
-            {`Cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA} categorias — você marcou ${selecionadas.length}. Tire ${excedente} para seguir.`}
-          </p>
-        )}
         <CampoCidade cidade={cidade} setCidade={setCidade} />
         {erro && <p className="note note-warn" role="alert">{erro}</p>}
         <div className="step-footer">
           <button className="btn" onClick={() => setModo('checklist')}>
             ← Voltar
           </button>
+          {excedente > 0 && (
+            <p className="note note-warn" role="alert">
+              {`Cada pesquisa cobre até ${MAX_CATEGORIAS_POR_PESQUISA} categorias — você marcou ${selecionadas.length}. Tire ${excedente} para seguir.`}
+            </p>
+          )}
           <button
             className="btn btn-primary"
             disabled={enviando || selecionadas.length === 0 || excedente > 0 || !cidade.trim()}
@@ -375,7 +375,7 @@ export default function Briefing() {
   return (
     <div className="container">
       <div className="stepper-top">
-        <span>
+        <span aria-live="polite">
           Pergunta {passo} de {TOTAL_PASSOS}
         </span>
         <div
@@ -620,6 +620,10 @@ function Check({
 }
 
 function CampoCidade({ cidade, setCidade }: { cidade: string; setCidade: (c: string) => void }) {
+  // Erro inline (DS §4.4): borda --danger + mensagem com ícone abaixo do campo.
+  // Só depois do primeiro blur — não gritar antes de a pessoa interagir.
+  const [tocado, setTocado] = useState(false);
+  const comErro = tocado && !cidade.trim();
   return (
     <p style={{ margin: '16px 0' }}>
       <label htmlFor="cidade" style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>
@@ -627,13 +631,21 @@ function CampoCidade({ cidade, setCidade }: { cidade: string; setCidade: (c: str
       </label>
       <input
         id="cidade"
-        className="card"
+        className={`card${comErro ? ' input-erro' : ''}`}
         style={{ width: '100%', minHeight: 44, font: 'inherit' }}
         value={cidade}
         onChange={(ev) => setCidade(ev.target.value)}
+        onBlur={() => setTocado(true)}
         placeholder="ex.: Curitiba"
         autoComplete="address-level2"
+        aria-invalid={comErro || undefined}
+        aria-describedby={comErro ? 'cidade-erro' : undefined}
       />
+      {comErro && (
+        <span id="cidade-erro" className="campo-erro" role="alert">
+          <span aria-hidden="true">⚠</span> Informe a cidade para pesquisar.
+        </span>
+      )}
     </p>
   );
 }

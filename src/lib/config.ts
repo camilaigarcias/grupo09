@@ -1,8 +1,8 @@
 // Configuração central do app.
-// A marca/naming chega depois do build inicial: TODO nome exibido sai daqui.
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? 'Autopilot de Eventos';
+// Marca fechada em 30/08/2026: CRIVO. Todo nome exibido sai daqui.
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? 'CRIVO';
 export const APP_TAGLINE =
-  'Fornecedores de evento validados por reputação, com evidências.';
+  'Verificação de fornecedor de evento, com fonte em cada checagem.';
 
 export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY ?? 'Curitiba';
 

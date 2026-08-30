@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CRITERIO_LABELS, type Achado, type CandidatoResultado, type CriterioId, type RankingCategoria } from '@/lib/types';
-import { Spinner, TierBadge } from '@/components/ui';
+import { EmptyState, Spinner, TierBadge } from '@/components/ui';
 import { useRanking } from '@/components/useRanking';
 
 const ORDEM_CRITERIOS = Object.keys(CRITERIO_LABELS) as CriterioId[];
@@ -14,6 +14,35 @@ const ICONE_ACHADO: Record<Achado['status'], string> = {
   eliminatorio: '✕',
   nao_verificavel: '─',
 };
+
+// Etapas exibidas no SearchProgress (§4.24) enquanto não há nada concreto
+// para mostrar — espelham as fontes reais consultadas pela pipeline.
+const ETAPAS_BUSCA = [
+  'Consultando Receita Federal…',
+  'Buscando avaliações no Google…',
+  'Verificando Reclame Aqui…',
+  'Checando notícias e processos…',
+  'Analisando presença digital…',
+];
+
+// SearchProgress (DS §4.24): card central com spinner 32px, sublinha que troca
+// a cada etapa e barra indeterminada. A troca de texto é conteúdo (interval),
+// não animação — spinner e barra congelam sob prefers-reduced-motion via CSS.
+function SearchProgress() {
+  const [etapa, setEtapa] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setEtapa((e) => (e + 1) % ETAPAS_BUSCA.length), 2200);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="card search-progress">
+      <span className="spinner spinner-lg" aria-hidden="true" />
+      <h3>Pesquisando fornecedores…</h3>
+      <p className="etapa">{ETAPAS_BUSCA[etapa]}</p>
+      <div className="progress-indeterminada" aria-hidden="true" />
+    </div>
+  );
+}
 
 export default function PesquisaViva({ id }: { id: string }) {
   const router = useRouter();
@@ -46,9 +75,8 @@ export default function PesquisaViva({ id }: { id: string }) {
   if (!data) {
     return (
       <div className="container">
-        <h1>
-          <Spinner /> Preparando a pesquisa…
-        </h1>
+        <h1>Preparando a pesquisa…</h1>
+        <SearchProgress />
         {erroRede && (
           <p className="note note-warn" role="alert">
             Sem resposta do servidor — tentando de novo…
@@ -103,6 +131,8 @@ export default function PesquisaViva({ id }: { id: string }) {
         </div>
       )}
 
+      {data.status === 'rodando' && total === 0 && <SearchProgress />}
+
       {data.categorias.map((cat) => (
         <CategoriaSecao key={cat.categoriaId} cat={cat} />
       ))}
@@ -154,10 +184,10 @@ function CategoriaSecao({ cat }: { cat: RankingCategoria }) {
         </p>
       )}
       {cat.status === 'concluida' && cat.candidatos.length === 0 && (
-        <p className="note note-warn">
+        <EmptyState titulo="Nenhum fornecedor encontrado">
           Não encontramos fornecedores desta categoria na cidade. Tente outra cidade — ou
           rode de novo mais tarde.
-        </p>
+        </EmptyState>
       )}
       <div className="cards-grid">
         {cat.candidatos.map((c) => (
@@ -194,7 +224,7 @@ function CandidatoVivo({ c }: { c: CandidatoResultado }) {
       {c.fonte && <p className="fonte" style={{ margin: '2px 0 0' }}>{c.fonte}</p>}
       {c.doCache && (
         <p style={{ margin: '6px 0 0' }}>
-          <span className="badge badge-accent">🔁 validado há menos de 30 dias — reaproveitado</span>
+          <span className="badge badge-accent">📋 validado há menos de 30 dias — reaproveitado</span>
         </p>
       )}
 

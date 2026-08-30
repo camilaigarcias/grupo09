@@ -23,17 +23,17 @@ export type CriterioId =
 export const CRITERIO_LABELS: Record<CriterioId, string> = {
   cnpj_ativo: 'CNPJ ativo na Receita Federal',
   idade_empresa: 'Idade da empresa',
-  cnae_compativel: 'CNAE compatível com o serviço',
-  sancoes_publicas: 'Sanções públicas (CEIS/CNEP)',
-  google_rating: 'Nota e volume de avaliações no Google',
-  teor_avaliacoes: 'Recência e teor das avaliações',
+  cnae_compativel: 'CNAE compatível',
+  sancoes_publicas: 'Sanções públicas',
+  google_rating: 'Nota no Google',
+  teor_avaliacoes: 'Teor das avaliações',
   reclame_aqui: 'Reclame Aqui',
-  noticias_negativas: 'Notícias negativas (golpe/calote)',
-  processos_judiciais: 'Processos judiciais visíveis',
-  site_com_cnpj: 'Site próprio com CNPJ no rodapé',
-  instagram_ativo: 'Instagram/redes ativas',
-  contato_consistente: 'Consistência de contato entre canais',
-  diretorios_setor: 'Presença em diretórios do setor',
+  noticias_negativas: 'Notícias de golpe ou calote',
+  processos_judiciais: 'Processos judiciais',
+  site_com_cnpj: 'CNPJ no rodapé do site',
+  instagram_ativo: 'Redes ativas',
+  contato_consistente: 'Contato bate entre canais',
+  diretorios_setor: 'Diretórios do setor',
 };
 
 export const CRITERIOS_TOTais_MVP = 13;

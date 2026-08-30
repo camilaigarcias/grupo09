@@ -24,48 +24,48 @@ export const MAX_CATEGORIAS_POR_PESQUISA = 6;
 
 export const CATEGORIAS: Categoria[] = [
   // A · Espaço & infraestrutura
-  { id: 'espaco', label: 'Espaço / local de eventos', familia: 'A' },
-  { id: 'espaco_hotel', label: 'Hotel / resort para eventos', familia: 'A' },
-  { id: 'mobiliario', label: 'Mobiliário e locação de equipamentos', familia: 'A' },
+  { id: 'espaco', label: 'Espaço de eventos', familia: 'A' },
+  { id: 'espaco_hotel', label: 'Hotel ou resort', familia: 'A' },
+  { id: 'mobiliario', label: 'Mobiliário e equipamentos', familia: 'A' },
   { id: 'gerador', label: 'Gerador de energia', familia: 'A' },
   { id: 'banheiro_quimico', label: 'Banheiro químico', familia: 'A' },
   { id: 'limpeza', label: 'Limpeza', familia: 'A' },
   { id: 'seguranca', label: 'Segurança', familia: 'A' },
-  { id: 'brigadista', label: 'Brigadista / bombeiro civil', familia: 'A' },
-  { id: 'ambulancia', label: 'Ambulância / posto médico', familia: 'A' },
-  { id: 'alvara_avcb', label: 'Alvará e licenciamento (despachante)', familia: 'A' },
+  { id: 'brigadista', label: 'Bombeiro civil (brigadista)', familia: 'A' },
+  { id: 'ambulancia', label: 'Ambulância e posto médico', familia: 'A' },
+  { id: 'alvara_avcb', label: 'Alvará e licenciamento', familia: 'A' },
   { id: 'seguro_evento', label: 'Seguro de evento', familia: 'A' },
   // B · Alimentação & bebidas
-  { id: 'buffet', label: 'Buffet completo (almoço/jantar)', familia: 'B' },
-  { id: 'coffee', label: 'Coffee break / catering leve', familia: 'B' },
-  { id: 'coquetel', label: 'Coquetel / finger food', familia: 'B' },
-  { id: 'open_bar', label: 'Open bar / bartender', familia: 'B' },
-  { id: 'churrasqueiro_foodtruck', label: 'Churrasqueiro / food truck', familia: 'B' },
+  { id: 'buffet', label: 'Buffet completo', familia: 'B' },
+  { id: 'coffee', label: 'Coffee break', familia: 'B' },
+  { id: 'coquetel', label: 'Coquetel', familia: 'B' },
+  { id: 'open_bar', label: 'Open bar', familia: 'B' },
+  { id: 'churrasqueiro_foodtruck', label: 'Churrasco e food truck', familia: 'B' },
   // C · Técnica & conteúdo
-  { id: 'audio_video', label: 'Áudio e vídeo (som, projetor, telão)', familia: 'C' },
-  { id: 'iluminacao_palco', label: 'Iluminação cênica e palco/estrutura', familia: 'C' },
-  { id: 'streaming_captacao', label: 'Streaming / captação (híbrido)', familia: 'C' },
+  { id: 'audio_video', label: 'Áudio e vídeo', familia: 'C' },
+  { id: 'iluminacao_palco', label: 'Iluminação e palco', familia: 'C' },
+  { id: 'streaming_captacao', label: 'Streaming e captação', familia: 'C' },
   { id: 'internet_dedicada', label: 'Internet dedicada', familia: 'C' },
   { id: 'traducao_simultanea', label: 'Tradução simultânea', familia: 'C' },
-  { id: 'interprete_libras', label: 'Intérprete de Libras / acessibilidade', familia: 'C' },
-  { id: 'palestrante', label: 'Palestrante / facilitador / MC', familia: 'C' },
+  { id: 'interprete_libras', label: 'Libras e acessibilidade', familia: 'C' },
+  { id: 'palestrante', label: 'Palestrante ou MC', familia: 'C' },
   // D · Experiência & registro
-  { id: 'dj_atracoes', label: 'DJ / banda / atrações', familia: 'D' },
-  { id: 'decoracao_cenografia', label: 'Decoração / cenografia', familia: 'D' },
-  { id: 'foto_video', label: 'Fotografia / vídeo', familia: 'D' },
-  { id: 'team_building', label: 'Team building (dinâmicas)', familia: 'D' },
+  { id: 'dj_atracoes', label: 'DJ e atrações', familia: 'D' },
+  { id: 'decoracao_cenografia', label: 'Decoração e cenografia', familia: 'D' },
+  { id: 'foto_video', label: 'Fotografia e vídeo', familia: 'D' },
+  { id: 'team_building', label: 'Team building', familia: 'D' },
   // E · Marca & materiais
-  { id: 'comunicacao_visual', label: 'Comunicação visual / sinalização', familia: 'E' },
-  { id: 'brindes', label: 'Brindes personalizados', familia: 'E' },
+  { id: 'comunicacao_visual', label: 'Comunicação visual', familia: 'E' },
+  { id: 'brindes', label: 'Brindes', familia: 'E' },
   { id: 'montadora', label: 'Montadora de estande', familia: 'E' },
-  { id: 'art_laudos', label: 'ART / laudos de engenharia (feiras)', familia: 'E' },
+  { id: 'art_laudos', label: 'ART e laudos de engenharia', familia: 'E' },
   // F · Pessoas & logística
   { id: 'recepcionistas', label: 'Recepcionistas', familia: 'F' },
-  { id: 'credenciamento', label: 'Credenciamento / check-in', familia: 'F' },
-  { id: 'garcons', label: 'Garçons e copeiras', familia: 'F' },
-  { id: 'translado', label: 'Translado / transporte executivo', familia: 'F' },
+  { id: 'credenciamento', label: 'Credenciamento e check-in', familia: 'F' },
+  { id: 'garcons', label: 'Garçons', familia: 'F' },
+  { id: 'translado', label: 'Transporte executivo', familia: 'F' },
   { id: 'hospedagem', label: 'Hospedagem', familia: 'F' },
-  { id: 'manobrista', label: 'Manobrista / valet', familia: 'F' },
+  { id: 'manobrista', label: 'Manobrista', familia: 'F' },
 ];
 
 export const CATEGORIA_BY_ID = new Map(CATEGORIAS.map((c) => [c.id, c]));
@@ -152,14 +152,19 @@ export function mapearCategorias(r: ChecklistRespostas): MapeamentoResultado {
   if (r.comida.includes('almoco_jantar')) set.add('buffet');
   if (r.comida.includes('coquetel')) set.add('coquetel');
   if (r.comida.includes('churrasco')) set.add('churrasqueiro_foodtruck');
-  if (r.comida.length > 0) set.add('garcons');
+  if (r.comida.length > 0) {
+    set.add('garcons');
+    // Antes era um checkbox na P5 que a Ana marcava em praticamente 100% dos casos.
+    // Vira consequência automática: o efeito é uma linha no relatório, não uma decisão.
+    avisos.push('Inclua opção vegetariana e vegana no pedido de orçamento.');
+  }
 
   // P6 — bebida e música
   if (r.bebidaMusica.includes('open_bar')) set.add('open_bar');
   if (r.bebidaMusica.includes('musica')) {
     set.add('dj_atracoes');
     avisos.push(
-      'Música ao vivo ou DJ aciona taxa do ECAD — é uma taxa a recolher, não um fornecedor a cotar.',
+      'Música gera taxa de ECAD (direitos autorais). Fica no relatório.',
     );
   }
 
@@ -193,7 +198,7 @@ export function mapearCategorias(r: ChecklistRespostas): MapeamentoResultado {
   if (r.tipo === 'feira_expositor') {
     ['espaco', 'gerador', 'internet_dedicada', 'limpeza', 'seguranca'].forEach((c) => set.delete(c));
     avisos.push(
-      'Feira (expositor): energia, internet, água, limpeza e mobiliário básico saem do portal do ORGANIZADOR da feira — não se cota fornecedor aberto. Montadora credenciada, cenografia do estande, ART/laudos e seguro são obrigatórios.',
+      'No estande, energia, internet, água, limpeza e mobiliário básico saem do portal do organizador da feira. Não entram como fornecedor de mercado. Montadora credenciada, cenografia do estande, ART com laudo de engenharia e seguro passam a ser obrigatórios.',
     );
   }
 
